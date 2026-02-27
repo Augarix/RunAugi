@@ -1,0 +1,86 @@
+name: runaugi
+description: AugiRun — rychlý runner ve stylu Geometry Dash
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared_preferences: ^2.3.2
+  just_audio: ^0.9.42
+  audio_session: ^0.1.21
+  # google_mobile_ads: ^5.1.0   # ❌ dočasně vypnuto, aby app nepadala kvůli chybějícímu AdMob APP_ID
+  provider: ^6.1.2
+  gif: ^2.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/icon.png
+    - assets/images/splash.png
+    - assets/images/placeholder.png
+    - assets/images/augi.png
+    - assets/images/czen.png
+    - assets/images/Difficulty-bg 3.png
+    - assets/images/pozad3.gif
+    - assets/images/pozad2.gif
+    - assets/images/pozad1.gif
+    - assets/images/main_background.gif
+    - assets/music/menu_t.mp3
+    - assets/music/menu_m.mp3
+    - assets/music/track_t1.mp3
+    - assets/music/track_t2.mp3
+    - assets/music/track_t3.mp3
+    - assets/music/track_t4.mp3
+    - assets/music/track_t5.mp3
+    - assets/music/track_t6.mp3
+    - assets/music/track_m1.mp3
+    - assets/music/track_m2.mp3
+    - assets/music/track_m3.mp3
+    - assets/music/track_m4.mp3
+    - assets/music/track_m5.mp3
+    - assets/music/track_m6.mp3
+    - assets/images/run/Ready.png
+    - assets/images/run/Set.png
+    - assets/images/run/Go.png
+    - assets/images/run/Run1.png
+    - assets/images/run/Run2.png
+    - assets/images/run/Run3.png
+    - assets/images/run/Jump1.png
+    - assets/images/run/Death.png
+    - assets/images/run/Grounded.png
+    - assets/images/MT_start.png
+    - assets/images/MT_mid.png
+    - assets/images/MT_end.png
+
+  fonts:
+    - family: Augarix
+      fonts:
+        - asset: assets/fonts/Augarix.otf
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/icon.png"
+  adaptive_icon_foreground: "assets/images/icon.png"
+  adaptive_icon_background: "#101317"
+  remove_alpha_ios: true
+
+flutter_native_splash:
+  color: "#101317"
+  image: assets/images/splash.png
+  android_12:
+    color: "#101317"
+    image: assets/images/splash.png
+  fullscreen: true

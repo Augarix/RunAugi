@@ -1,0 +1,45 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="cz.augarix.runaugi">
+
+    <!-- Síť a reklamy -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Google Ads ID (Android 13+) -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
+    <!-- Volitelné: haptika/nezhasínání -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
+    <application
+        android:label="RunAugi"
+        android:name="${applicationName}"
+        android:icon="@mipmap/launcher_icon"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:turnScreenOn="true"
+            android:showWhenLocked="false"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|locale|uiMode|fontScale|density">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- Immersive režim pro Flutter Activity -->
+            <meta-data
+                android:name="io.flutter.embedding.android.LayoutDirection"
+                android:value="ltr" />
+        </activity>
+
+        <!-- Splash motiv (vytvořil flutter_native_splash) -->
+        <meta-data
+            android:name="io.flutter.embedding.android.SplashScreenDrawable"
+            android:resource="@drawable/launch_background" />
+    </application>
+</manifest>

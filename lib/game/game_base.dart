@@ -348,7 +348,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final minGapEasy = reach * 0.70 + safety;
     final maxGapEasy = minGapEasy * 1.6;
 
-    while (cursor < endX) {
+    // ✅ OPRAVA 4: max 8 překážek per volání – zabrání blokování herní smyčky
+    int _genCount = 0;
+    while (cursor < endX && _genCount < 8) {
       final placeX = cursor +
           (widget.modeName == 'EASY'
               ? (minGapEasy + rng.nextDouble() * (maxGapEasy - minGapEasy))
@@ -370,6 +372,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
           fromFloor: true, type: ObstacleType.box,
         ));
         cursor = placeX + w * (0.6 + rng.nextDouble() * 0.5);
+        _genCount++;
       } else {
         // Kratší překážka → BOX nebo SPIKE (SPIKE ~ 35 %), přitom férové limity
         final sideClear = runnerRadius * 2;
@@ -389,6 +392,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
           fromFloor: true, type: isSpike ? ObstacleType.spike : ObstacleType.box,
         ));
         cursor = placeX + w * (0.6 + rng.nextDouble() * 0.5);
+        _genCount++;
       }
 
       // HARD speciály (zachováno)
@@ -748,9 +752,12 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
     if (!_gameRunning || _intro != IntroPhase.none) return;
 
+    // ✅ OPRAVA 1: setState okamžitě – vizuální odezva bez čekání na příští tick
     if (grounded) {
-      vy = gravityFlipped ? jumpVelocity.abs() : jumpVelocity;
-      grounded = false;
+      setState(() {
+        vy = gravityFlipped ? jumpVelocity.abs() : jumpVelocity;
+        grounded = false;
+      });
     }
   }
 
@@ -868,7 +875,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         child: const Icon(Icons.crop_square),
       ),
       body: GestureDetector(
-        onTap: _jump, // 1× tap = skok (první tap = start + queued jump) / z death stavu = respawn
+        onTapDown: (_) => _jump(), // ✅ OPRAVA 2: onTapDown – reaguje při dotyku, ne při zvednutí prstu
         onLongPress: _openIngame,
         child: Stack(
           children: [

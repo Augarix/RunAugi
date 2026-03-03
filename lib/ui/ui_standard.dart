@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
 
 /// ---- UI STANDARD: konstanty a znovupoužitelné widgety ----
-class UiStd {
+///
+/// Opravy (2026-03):
+///   1. `abstract final class` – zabraňuje instanciaci UiStd()
+///   2. `cellDecoration` – odstraněn nepoužívaný BuildContext parametr
+///   3. `segmented()` – opravený fallback šířky (clamp místo jednostranného limitu)
+///   4. `characterPicker()` – přidán volitelný parametr `characterName` pro popisek postavy
+///   5. `sectionTitle()` – nový widget pro vizuální skupinování řádků nastavení
+abstract final class UiStd {
   // Layout
   static const twoColsMinWidth = 660.0; // breakpoint
   static const cellGap = 6.0;           // mezera mezi buňkami
@@ -10,7 +17,8 @@ class UiStd {
   static const labelMax = 260.0;
 
   // Styl buněk (panelů)
-  static BoxDecoration cellDecoration(BuildContext _) => BoxDecoration(
+  // OPRAVA 2: odstraněn nepoužívaný BuildContext parametr
+  static BoxDecoration get cellDecoration => BoxDecoration(
     color: Colors.white.withOpacity(0.06),
     borderRadius: BorderRadius.circular(12),
     border: Border.all(color: Colors.white24),
@@ -32,7 +40,7 @@ class UiStd {
           margin: cellMargin,
           padding: cellPadding,
           constraints: const BoxConstraints(minHeight: rowMinHeight),
-          decoration: cellDecoration(context),
+          decoration: cellDecoration, // OPRAVA 2: bez BuildContext
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -53,6 +61,22 @@ class UiStd {
     );
   }
 
+  /// NOVÝ – nadpis sekce pro vizuální skupinování řádků nastavení
+  static Widget sectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, top: 12, bottom: 2),
+      child: Text(
+        title.toUpperCase(),
+        style: const TextStyle(
+          color: Colors.white38,
+          fontFamily: 'Augarix',
+          fontSize: 11,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+
   /// Kompaktní SegmentedButton – sedí do řádku 56 px (výška 44)
   static Widget segmented<T>({
     required List<(T value, String label)> options,
@@ -63,8 +87,10 @@ class UiStd {
     return LayoutBuilder(
       builder: (context, c) {
         final total = c.maxWidth.isFinite ? c.maxWidth : 0.0;
-        final computed = total > 0 ? (total - 12) / (options.length) : 160.0;
-        final segW = computed < 160 ? 160.0 : computed;
+        // OPRAVA 3: clamp s horní i dolní mezí – segment se přizpůsobí
+        // dostupnému prostoru místo aby přetékal z containeru
+        final computed = total > 0 ? (total - 12) / options.length : 120.0;
+        final segW = computed.clamp(80.0, 240.0);
 
         return SizedBox(
           height: segH,
@@ -86,7 +112,10 @@ class UiStd {
               padding: const MaterialStatePropertyAll(EdgeInsets.zero),
               side: MaterialStateProperty.resolveWith((states) {
                 final sel = states.contains(MaterialState.selected);
-                return BorderSide(color: Colors.white.withOpacity(sel ? 0.75 : 0.35), width: sel ? 2 : 1);
+                return BorderSide(
+                  color: Colors.white.withOpacity(sel ? 0.75 : 0.35),
+                  width: sel ? 2 : 1,
+                );
               }),
               textStyle: const MaterialStatePropertyAll(
                 TextStyle(fontSize: 18, height: 1.2, fontFamily: 'Augarix', letterSpacing: 0.5),
@@ -111,10 +140,12 @@ class UiStd {
   }
 
   /// Kompaktní character picker (48 px náhled, 40 px šipky) – drží řádek 56 px
+  /// OPRAVA 4: volitelný `characterName` zobrazí název pod náhledem
   static Widget characterPicker({
     required String imagePath,
     required VoidCallback onPrev,
     required VoidCallback onNext,
+    String? characterName,
   }) {
     const btnSize = 40.0;
     const preview = 48.0;
@@ -139,16 +170,32 @@ class UiStd {
       children: [
         arrow(Icons.chevron_left, onPrev),
         const SizedBox(width: 8),
-        Container(
-          width: preview,
-          height: preview,
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.25),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.white24),
-          ),
-          child: Image.asset(imagePath, fit: BoxFit.contain),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: preview,
+              height: preview,
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.25),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Image.asset(imagePath, fit: BoxFit.contain),
+            ),
+            if (characterName != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                characterName,
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontFamily: 'Augarix',
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ],
         ),
         const SizedBox(width: 8),
         arrow(Icons.chevron_right, onNext),

@@ -6,10 +6,12 @@ class EasyRun extends GameBase {
       : super(
     modeName: 'EASY',
     minIntro: const Duration(seconds: 2),
-    length: const Duration(minutes: 2),
+    length: const Duration(minutes: 5),
     milesOnFinish: 1,
     checkpointFreq: const Duration(seconds: 20),
     speedPercent: 100,
+    spritePrefix: 'HL',
+    reactionTimeSec: 1.2, // nejvíc času – nejjednodušší
   );
 
   @override

@@ -10,6 +10,8 @@ class MediumRun extends GameBase {
     milesOnFinish: 5,
     checkpointFreq: const Duration(seconds: 30),
     speedPercent: 110,
+    spritePrefix: 'MT',
+    reactionTimeSec: 0.8,
   );
 
   @override

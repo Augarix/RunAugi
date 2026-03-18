@@ -63,6 +63,8 @@ flutter:
     - assets/images/MT_start.png
     - assets/images/MT_mid.png
     - assets/images/MT_end.png
+    - assets/images/MT_fill.png
+    - assets/images/spike.png
 
   fonts:
     - family: Augarix

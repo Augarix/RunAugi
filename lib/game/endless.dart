@@ -6,10 +6,12 @@ class EndlessRun extends GameBase {
       : super(
     modeName: 'ENDLESS',
     minIntro: const Duration(seconds: 2),
-    length: const Duration(days: 3650), // prakticky nekonečné
+    length: const Duration(days: 3650),
     milesOnFinish: 0,
     checkpointFreq: const Duration(seconds: 20),
     speedPercent: 110,
+    spritePrefix: 'EN',
+    reactionTimeSec: 0.8,
   );
 
   @override

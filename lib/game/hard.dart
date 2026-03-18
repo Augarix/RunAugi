@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'game_base.dart';
 
-// Hard má flip a mirror sekce (řeší game_base)
-
 class HardRun extends GameBase {
   const HardRun({super.key})
       : super(
@@ -12,6 +10,8 @@ class HardRun extends GameBase {
     milesOnFinish: 25,
     checkpointFreq: const Duration(seconds: 40),
     speedPercent: 120,
+    spritePrefix: 'CT',
+    reactionTimeSec: 0.5, // nejméně času – nejtěžší
   );
 
   @override

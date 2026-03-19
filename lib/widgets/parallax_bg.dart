@@ -1,9 +1,72 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
-/// Parallax z 3 vrstev (JJ2 styl).
-/// Dočasně FORCEnutý PNG fallback kvůli chybě multi_frame_codec na emu (Android 14).
+enum ParallaxLayerMode {
+  scroll,
+  oscillate,
+}
+
+class ParallaxLayerConfig {
+  final String asset;
+  final Duration duration;
+  final ParallaxLayerMode mode;
+  final double amplitude;
+  final BoxFit fit;
+  final Alignment alignment;
+  final ImageRepeat repeat;
+  final FilterQuality filterQuality;
+  final bool gaplessPlayback;
+
+  const ParallaxLayerConfig({
+    required this.asset,
+    required this.duration,
+    required this.mode,
+    this.amplitude = 12.0,
+    this.fit = BoxFit.cover,
+    this.alignment = Alignment.center,
+    this.repeat = ImageRepeat.noRepeat,
+    this.filterQuality = FilterQuality.none,
+    this.gaplessPlayback = true,
+  });
+
+  const ParallaxLayerConfig.scroll({
+    required this.asset,
+    required this.duration,
+    this.fit = BoxFit.cover,
+    this.alignment = Alignment.centerLeft,
+    this.repeat = ImageRepeat.repeatX,
+    this.filterQuality = FilterQuality.none,
+    this.gaplessPlayback = true,
+  })  : mode = ParallaxLayerMode.scroll,
+        amplitude = 0.0;
+
+  const ParallaxLayerConfig.oscillate({
+    required this.asset,
+    required this.duration,
+    this.amplitude = 12.0,
+    this.fit = BoxFit.cover,
+    this.alignment = Alignment.center,
+    this.repeat = ImageRepeat.noRepeat,
+    this.filterQuality = FilterQuality.none,
+    this.gaplessPlayback = true,
+  }) : mode = ParallaxLayerMode.oscillate;
+}
+
 class ParallaxBackground extends StatefulWidget {
-  const ParallaxBackground({super.key});
+  final String backgroundAsset;
+  final BoxFit backgroundFit;
+  final List<ParallaxLayerConfig> layers;
+  final Color? overlayColor;
+  final double overlayOpacity;
+
+  const ParallaxBackground({
+    super.key,
+    required this.backgroundAsset,
+    required this.layers,
+    this.backgroundFit = BoxFit.cover,
+    this.overlayColor,
+    this.overlayOpacity = 0.0,
+  });
 
   @override
   State<ParallaxBackground> createState() => _ParallaxBackgroundState();
@@ -11,80 +74,120 @@ class ParallaxBackground extends StatefulWidget {
 
 class _ParallaxBackgroundState extends State<ParallaxBackground>
     with TickerProviderStateMixin {
-  // ⬇⬇ Přepnout na false, až bude GIF dekodér spolehlivý na cílovém HW.
-  static const bool _preferPngFallback = true;
-
-  late final AnimationController _ctrlFast; // 100 %
-  late final AnimationController _ctrlMid;  // 66 %
-  late final AnimationController _ctrlSlow; // 33 %
+  late final List<AnimationController> _controllers;
 
   @override
   void initState() {
     super.initState();
 
-    _ctrlFast = AnimationController(vsync: this, duration: const Duration(seconds: 20))..repeat();
-    _ctrlMid  = AnimationController(vsync: this, duration: const Duration(seconds: 30))..repeat();
-    _ctrlSlow = AnimationController(vsync: this, duration: const Duration(seconds: 60))..repeat();
+    _controllers = widget.layers
+        .map(
+          (layer) => AnimationController(
+        vsync: this,
+        duration: layer.duration,
+      )..repeat(),
+    )
+        .toList();
 
-    // Předehřátí assetů
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = context;
-      for (final a in const [
-        // PNG fallbacky
-        'assets/images/pozad1.png',
-        'assets/images/pozad2.png',
-        'assets/images/pozad3.png',
-        // GIFy (pro budoucí zapnutí)
-        'assets/images/pozad1.gif',
-        'assets/images/pozad2.gif',
-        'assets/images/pozad3.gif',
-      ]) {
-        // ignore: unawaited_futures
-        precacheImage(AssetImage(a), ctx);
+
+      precacheImage(AssetImage(widget.backgroundAsset), ctx);
+      for (final layer in widget.layers) {
+        precacheImage(AssetImage(layer.asset), ctx);
       }
     });
   }
 
   @override
   void dispose() {
-    _ctrlFast.dispose();
-    _ctrlMid.dispose();
-    _ctrlSlow.dispose();
+    for (final c in _controllers) {
+      c.dispose();
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Stack(
+      fit: StackFit.expand,
       children: [
-        _RepeatScrollLayer(
-          // nejvzdálenější – 33 %
-          assetPrimary: _preferPngFallback ? 'assets/images/pozad3.png' : 'assets/images/pozad3.gif',
-          controller: _ctrlSlow,
+        Image.asset(
+          widget.backgroundAsset,
+          fit: widget.backgroundFit,
+          filterQuality: FilterQuality.none,
         ),
-        _RepeatScrollLayer(
-          // střed – 66 %
-          assetPrimary: _preferPngFallback ? 'assets/images/pozad2.png' : 'assets/images/pozad2.gif',
-          controller: _ctrlMid,
-        ),
-        _RepeatScrollLayer(
-          // popředí – 100 %
-          assetPrimary: _preferPngFallback ? 'assets/images/pozad1.png' : 'assets/images/pozad1.gif',
-          controller: _ctrlFast,
-        ),
+
+        for (int i = 0; i < widget.layers.length; i++)
+          _AnimatedParallaxLayer(
+            config: widget.layers[i],
+            controller: _controllers[i],
+          ),
+
+        if (widget.overlayColor != null && widget.overlayOpacity > 0)
+          Container(
+            color: widget.overlayColor!.withOpacity(widget.overlayOpacity),
+          ),
       ],
     );
   }
 }
 
-/// Jeden layer: textura se dlaždicuje horizontálně a viewport se plynule posouvá.
-class _RepeatScrollLayer extends StatelessWidget {
-  final String assetPrimary;           // PNG (aktuálně) nebo GIF (později)
+class _AnimatedParallaxLayer extends StatelessWidget {
+  final ParallaxLayerConfig config;
   final AnimationController controller;
 
-  const _RepeatScrollLayer({
-    required this.assetPrimary,
+  const _AnimatedParallaxLayer({
+    required this.config,
     required this.controller,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    switch (config.mode) {
+      case ParallaxLayerMode.scroll:
+        return _RepeatScrollLayer(
+          asset: config.asset,
+          controller: controller,
+          fit: config.fit,
+          alignment: config.alignment,
+          repeat: config.repeat,
+          filterQuality: config.filterQuality,
+          gaplessPlayback: config.gaplessPlayback,
+        );
+
+      case ParallaxLayerMode.oscillate:
+        return _OscillatingLayer(
+          asset: config.asset,
+          controller: controller,
+          amplitude: config.amplitude,
+          fit: config.fit,
+          alignment: config.alignment,
+          repeat: config.repeat,
+          filterQuality: config.filterQuality,
+          gaplessPlayback: config.gaplessPlayback,
+        );
+    }
+  }
+}
+
+class _RepeatScrollLayer extends StatelessWidget {
+  final String asset;
+  final AnimationController controller;
+  final BoxFit fit;
+  final Alignment alignment;
+  final ImageRepeat repeat;
+  final FilterQuality filterQuality;
+  final bool gaplessPlayback;
+
+  const _RepeatScrollLayer({
+    required this.asset,
+    required this.controller,
+    required this.fit,
+    required this.alignment,
+    required this.repeat,
+    required this.filterQuality,
+    required this.gaplessPlayback,
   });
 
   @override
@@ -94,27 +197,26 @@ class _RepeatScrollLayer extends StatelessWidget {
         final w = c.maxWidth;
         final h = c.maxHeight;
 
-        Image buildImage(String asset) => Image.asset(
-          asset,
-          fit: BoxFit.cover,
-          alignment: Alignment.centerLeft,
-          repeat: ImageRepeat.repeatX,
-          gaplessPlayback: true,
-          filterQuality: FilterQuality.none,
-        );
-
         return RepaintBoundary(
           child: AnimatedBuilder(
             animation: controller,
             builder: (_, __) {
               final dx = -((controller.value * w) % w);
+
               return ClipRect(
                 child: Transform.translate(
                   offset: Offset(dx, 0),
                   child: SizedBox(
                     width: w * 2,
                     height: h,
-                    child: buildImage(assetPrimary),
+                    child: Image.asset(
+                      asset,
+                      fit: fit,
+                      alignment: alignment,
+                      repeat: repeat,
+                      gaplessPlayback: gaplessPlayback,
+                      filterQuality: filterQuality,
+                    ),
                   ),
                 ),
               );
@@ -122,6 +224,54 @@ class _RepeatScrollLayer extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _OscillatingLayer extends StatelessWidget {
+  final String asset;
+  final AnimationController controller;
+  final double amplitude;
+  final BoxFit fit;
+  final Alignment alignment;
+  final ImageRepeat repeat;
+  final FilterQuality filterQuality;
+  final bool gaplessPlayback;
+
+  const _OscillatingLayer({
+    required this.asset,
+    required this.controller,
+    required this.amplitude,
+    required this.fit,
+    required this.alignment,
+    required this.repeat,
+    required this.filterQuality,
+    required this.gaplessPlayback,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: controller,
+        builder: (_, __) {
+          final dx = math.sin(controller.value * 2 * math.pi) * amplitude;
+
+          return Transform.translate(
+            offset: Offset(dx, 0),
+            child: SizedBox.expand(
+              child: Image.asset(
+                asset,
+                fit: fit,
+                alignment: alignment,
+                repeat: repeat,
+                gaplessPlayback: gaplessPlayback,
+                filterQuality: filterQuality,
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

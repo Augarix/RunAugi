@@ -11,7 +11,7 @@ class MediumRun extends GameBase {
     checkpointFreq: const Duration(seconds: 30),
     speedPercent: 110,
     spritePrefix: 'MT',
-    reactionTimeSec: 0.8,
+    reactionTimeSec: 0.5, // poloviční mezery oproti EASY
   );
 
   @override

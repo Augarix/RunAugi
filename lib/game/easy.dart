@@ -12,7 +12,7 @@ class EasyRun extends GameBase {
     checkpointFreq: const Duration(seconds: 20),
     speedPercent: 100,
     spritePrefix: 'HL',
-    reactionTimeSec: 1.2,
+    reactionTimeSec: 0.8,
     backgroundBuilder: _buildEasyBackground,
   );
 

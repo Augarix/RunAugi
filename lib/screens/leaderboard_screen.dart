@@ -4,6 +4,7 @@ import '../texty.dart';
 import '../models/leaderboard_model.dart';
 import '../models/player_prefs.dart';
 import '../services/settings_service.dart';
+import '../models/lang.dart';
 
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
@@ -94,6 +95,23 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     final maxOff = _scroll.position.maxScrollExtent;
     _scroll.jumpTo(centeredOffset.clamp(0.0, maxOff));
     _scrolledToPlayer = true;
+  }
+
+  /// Formátuje vzdálenost entry dle jazyka:
+  /// CZ: m (< 1 km) nebo X.XXX km (≥ 1 km)
+  /// EN: ft (< 1 mi) nebo X.XXX mi (≥ 1 mi)
+  // e.km obsahuje hodnotu v metrech = krocích (1 krok ≈ 1 metr)
+  String _formatEntryDistance(LBEntry e) {
+    final meters = e.km;
+    final isCz = _settings.lang == Lang.cz;
+    if (meters < 1000.0) {
+      final steps = meters.round();
+      return isCz ? '$steps kroků' : '$steps steps';
+    }
+    final miles = meters / 1000.0;
+    return isCz
+        ? '${miles.toStringAsFixed(1)} mil'
+        : '${miles.toStringAsFixed(1)} miles';
   }
 
   @override
@@ -261,7 +279,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                                                 SizedBox(
                                                   width: 100,
                                                   child: Text(
-                                                    '${e.miles} ${T.miles()}',
+                                                    _formatEntryDistance(e),
                                                     textAlign: TextAlign.right,
                                                     maxLines: 1,
                                                     overflow: TextOverflow.ellipsis,

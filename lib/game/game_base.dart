@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:gif/gif.dart'; // ⬅️ pauzovatelné GIF pozadí
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../achievements/ach_logic.dart';
 import '../models/player_prefs.dart';
@@ -84,6 +85,12 @@ abstract class GameBase extends StatefulWidget {
     this.stayDead = false,
     this.backgroundBuilder,
   });
+
+  /// Klíč pro SharedPreferences – každý mode má vlastní seed.
+  String get seedPrefsKey => 'level_seed_$modeName';
+  /// Klíč pro nejlepší vzdálenost v tomto levelu.
+  /// v3 = vzdalenost primo v metrech jako double
+  String get bestXPrefsKey => 'best_worldx_v3_$modeName';
 }
 
 class GameBaseState<TW extends GameBase> extends State<TW>
@@ -93,10 +100,20 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   static const double runnerRadius = 36;        // poloměr vizuálního kruhu
   // Pravá hrana runner hitboxu = worldX + runnerFrontOffset
   // Snížením hodnoty pod runnerRadius dáš hráči "benefit of doubt" vpravo
-  static const double runnerFrontOffset = 28.0; // pravá hrana hitboxu (b,c bod trojúhelníku)
+  static const double runnerFrontOffset = 28.0; // pravá hrana hitboxu
+
+  // ── Skóre / vzdálenost ────────────────────────────────────────
+  // Velikost flash textu jako % výšky displeje (landscape)
+  static const double scoreFlashSizePct = 0.20; // 20% výšky = ~78px na typickém telefonu
+  // Přibližná konverze px → km (závisí na speed a měřítku)
+  // 1 km = 1000m, baseSpeed=520px/s → při 100% speedPercent
+  // Laditelná konstanta – upravit dle pocitu ve hře
+  // Reálná rychlost runnera v m/s (libovolná ale konzistentní konvence)
+  // 6.0 m/s = dobrá běžecká rychlost, odpovídá 10 min/km
+  static const double speedMps = 6.0;
   // Trojúhelníkový hitbox: a=levý dolní, b=pravý horní (posunutelný), c=pravý dolní
   // runnerHitboxTopRight: X offset bodu b od středu runnera (kladné = vpravo)
-  static const double runnerHitboxTopRight = 10.0; // b je blíže středu než c
+  static const double runnerHitboxTopRight = 10.0; // bod b blize stredu nez c
   static const double groundYFrac = 0.90;       // 10 % od spodku
   static const double ceilYFrac   = 0.10;       // 10 % od horní hrany
 
@@ -157,6 +174,16 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   double runnerY = 0;
   double vy = 0;
   bool grounded = true;
+
+  // ── Score / vzdálenost ───────────────────────────────────────
+  double _bestMeters      = 0; // nejdál kam hráč v tomto levelu došel (v metrech)
+  double _runMeters       = 0; // aktuální vzdálenost v tomto runu (v metrech)
+  double _sessionNewM     = 0; // nové metry získané v tomto runu (pro flash)
+  Timer? _scoreFlashTimer;
+  double _scoreFlashOpacity   = 0;
+  bool   _scoreFlashVisible   = false;
+  double _scoreDisplayScale   = 1.0; // pro pulz v rohu
+  bool   _scorePulsing        = false;
 
   // Tracking generátoru – přetrvává mezi voláními _ensureGeneratedAhead
   int  _genLastLayers     = 1;
@@ -267,7 +294,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     }
 
     speed = baseSpeedPxPerSec * (widget.speedPercent / 100.0);
-    _newSeed();     // 🎵 MUSIC: uvnitř lock + play herní hudby
+    // Načti uložený seed nebo vygeneruj nový při prvním spuštění
+    _loadOrGenerateSeed();
     _start();       // timer jede, ale _gameRunning drží simulaci
     _startRunCycle();
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncBgAnim());
@@ -279,6 +307,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     _introTimer?.cancel();
     _runAnimTimer?.cancel();
     _longJumpTimer?.cancel();
+    _scoreFlashTimer?.cancel();
     loop.cancel();
     _bgGifCtrl?.dispose();
     // 🎵 MUSIC: ukonči herní hudbu
@@ -335,9 +364,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   // ———————————————————————————————————————————————————————————
   // Seed a start smyčky
   // ———————————————————————————————————————————————————————————
-  void _newSeed() {
-    seed = DateTime.now().microsecondsSinceEpoch & 0x7FFFFFFF;
-    rng = Random(seed);
+  // ── Reset herního stavu bez změny seedu ──────────────────────
+  void _resetGameState() {
     obstacles.clear();
     flips.clear();
     mirrors.clear();
@@ -351,20 +379,23 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     gravityFlipped = false;
     mirroring = false;
     mirrorUntilX = 0;
-
     _deadFrozen = false;
     _awaitFirstTap = true;
     _gameRunning = false;
     _queuedJump = false;
     _intro = IntroPhase.none;
-
-    // Reset generátor trackingu
-    _genLastLayers     = 1;
-    _genLastWasBox     = true;
-    _genLastWasSpike   = false;
+    _genLastLayers      = 1;
+    _genLastWasBox      = true;
+    _genLastWasSpike    = false;
     _genLastWasPlatform = true;
+    _runMeters          = 0;
+  }
 
-    // 🎵 MUSIC: nový seed → nová skladba dle stylu, a hned přehrát herní track
+  // ── Aplikuj seed (bez persistování) ──────────────────────────
+  void _applySeed(int s) {
+    seed = s;
+    rng = Random(seed);
+    _resetGameState();
     Future.microtask(() async {
       await MusicService.I.stopMenuMusic();
       await MusicService.I.onNewSeed(newSeed: seed);
@@ -372,8 +403,44 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         await MusicService.I.playGameTrackForLockedSeed();
       }
     });
-
     _syncBgAnim();
+  }
+
+  // ── Načti uložený seed nebo vygeneruj nový ───────────────────
+  Future<void> _loadOrGenerateSeed() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getInt(widget.seedPrefsKey);
+    // Načti nejlepší vzdálenost pro tento level
+    _bestMeters = prefs.getDouble(widget.bestXPrefsKey) ?? 0;
+    if (saved != null) {
+      _applySeed(saved);
+    } else {
+      final s = DateTime.now().microsecondsSinceEpoch & 0x7FFFFFFF;
+      await prefs.setInt(widget.seedPrefsKey, s);
+      _applySeed(s);
+    }
+  }
+
+  // ── Hook pro přegenerování úrovně ────────────────────────────
+  // Volej po zobrazení reklamy nebo po penalizaci.
+  // Smaže uložený seed → příští _loadOrGenerateSeed vygeneruje nový.
+  Future<void> regenerateLevel() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(widget.seedPrefsKey);
+    await prefs.remove(widget.bestXPrefsKey); // reset vzdálenosti pro nový level
+    _bestMeters = 0;
+    await _loadOrGenerateSeed();
+    if (mounted) setState(() {});
+    _syncBgAnim();
+  }
+
+  // ── Nový seed (přegenerování v ingame menu) ───────────────────
+  void _newSeed() {
+    final s = DateTime.now().microsecondsSinceEpoch & 0x7FFFFFFF;
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setInt(widget.seedPrefsKey, s);
+    });
+    _applySeed(s);
   }
 
   void _start() {
@@ -477,8 +544,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       if (makeSpike) {
         final sSpikeW    = _tileH * spikeScale;
         // Spike skupina: 1–3 spiky za sebou (generujeme jako jeden wide obstacle)
-        final maxSpikeCount = (maxFairW * 0.6 / sSpikeW).floor().clamp(1, 3);
-        final spikeCount = 1 + rng.nextInt(maxSpikeCount); // 1–3 spiky
+        // Spike skupina: 10%=1 spike, 40%=2 spiky, 50%=3 spiky
+        final spikeRoll  = rng.nextDouble();
+        final spikeCount = spikeRoll < 0.10 ? 1 : (spikeRoll < 0.50 ? 2 : 3);
         obW               = spikeCount * sSpikeW;
         obH               = _tileH * spikeScale;
         obType            = ObstacleType.spike;
@@ -550,7 +618,11 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       int cVariant = 0;
       int cMaxTops = 1;
       if (isTypeC) {
-        // Varianta C: délka základny se přepočítá PŘED obstacles.add
+        // Základna C: vždy 1 vrstva výšky (plochá, bez pyramid fill řad).
+        // Tím jsou nástavby a spike vizuálně jasně nad základnou.
+        obH = sTileHGen; // 1 vrstva
+        obLayersForTracking = 1;
+        // Délka základny dle varianty
         cVariant = rng.nextInt(3);
         switch (cVariant) {
           case 0:  obW = _boxWidth(10 + rng.nextInt(11)); cMaxTops = 2; break; // C1: 10–20
@@ -588,26 +660,32 @@ class GameBaseState<TW extends GameBase> extends State<TW>
             final topGap = topReactionGap * (1.0 + rng.nextDouble() * 0.8);
             final topX   = topCursor + topGap;
 
-            final topH = (1 + rng.nextInt(maxTopLayers.clamp(1, 3))) * sTileHGen;
-
-            // maxTopW: slope nástavby přistane na MID nebo slope základny
-            final maxTopW = baseEnd - topX - topH - runnerRadius;
-            if (maxTopW <= sStartWLocal + sEndWLocal) break;
-
-            // Typ nástavby dle varianty C
-            final topRoll = rng.nextDouble();
+            // Nejdřív typ, pak topH (spike má fixní výšku sSpikeH)
+            final topRoll     = rng.nextDouble();
             final spikeThresh = cVariant == 0 ? 0.30 : (cVariant == 1 ? 0.20 : 0.15);
             final typeAThresh = spikeThresh + (cVariant == 0 ? 0.35 : (cVariant == 1 ? 0.30 : 0.20));
+            final isTopSpike  = topRoll < spikeThresh;
+            final sSpikeWLocal = _tileH * spikeScale;
+
+            // Spike výška = sSpikeH (fixní), BOX výška = náhodné vrstvy
+            final topH = isTopSpike
+                ? sSpikeWLocal
+                : (1 + rng.nextInt(maxTopLayers.clamp(1, 3))) * sTileHGen;
+
+            // maxTopW závisí na správném topH
+            final maxTopW = baseEnd - topX - topH - runnerRadius;
+            if (maxTopW <= sStartWLocal + sEndWLocal) break;
 
             double topW;
             ObstacleType topType;
 
-            if (topRoll < spikeThresh) {
-              // ── Spike skupina 1–3 dlaždice za sebou ──
-              final sSpikeW    = _tileH * spikeScale;
-              final maxSpikes  = ((maxTopW / sSpikeW).floor()).clamp(1, 3);
-              final spikeCount = 1 + rng.nextInt(maxSpikes); // 1–3 spiky
-              topW    = spikeCount * sSpikeW;
+            if (isTopSpike) {
+              // Spike skupina: 10%=1, 40%=2, 50%=3
+              final maxSpikes  = ((maxTopW / sSpikeWLocal).floor()).clamp(1, 3);
+              final spikeRollC = rng.nextDouble();
+              final spikeCount = (spikeRollC < 0.10 ? 1 : (spikeRollC < 0.50 ? 2 : 3))
+                  .clamp(1, maxSpikes);
+              topW    = spikeCount * sSpikeWLocal;
               topType = ObstacleType.spike;
             } else if (topRoll < typeAThresh) {
               topW    = sStartWLocal + sEndWLocal;
@@ -668,7 +746,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final dtSec = dt.inMicroseconds / 1e6;
     if (dtSec <= 0) return;
 
-    worldX += speed * dtSec;
+    worldX    += speed * dtSec;
+    _runMeters += speedMps * dtSec; // metry přímo
 
     if (widget.modeName == 'HARD') {
       for (final m in mirrors) {
@@ -964,8 +1043,32 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     AchLogic.I.onDeath();
     _lastDeathAt = DateTime.now();
 
+    // ── Výpočet nového skóre ──────────────────────────────────
+    _sessionNewM = 0;
+    final currentM = _runMeters.floorToDouble();
+    if (currentM > _bestMeters) {
+      _sessionNewM = currentM - _bestMeters;
+      _bestMeters  = currentM;
+      // Ulož rekord
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setDouble(widget.bestXPrefsKey, _bestMeters);
+      });
+      // Leaderboard snapshot
+      LeaderboardModel.I.updatePlayer(
+        SettingsService.I.username,
+        PlayerProfile.I.milesTotal,
+        km: _bestMeters,
+      );
+      // Míle za každých 1000m
+      final newMiles = (_sessionNewM / 1000).floor();
+      if (newMiles > 0) PlayerProfile.I.addMiles(newMiles);
+      // Flash
+      _triggerScoreFlash();
+    }
+    // _sessionNewM == 0 → flash se nezobrazí
+
     // ❄️ kompletní stop – čekáme na tap (po chvíli Death → Grounded)
-    _longJumpTimer?.cancel(); // zastav continuous jump při smrti
+    _longJumpTimer?.cancel();
     _longJumpTimer = null;
     setState(() {
       paused = true;
@@ -973,12 +1076,61 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       _gameRunning = false;
     });
     _syncBgAnim();
-    _armGroundedAfterDeath(); // ⬅️ spustí přepnutí na Grounded
+    _armGroundedAfterDeath();
+  }
+
+  // ── Score flash + pulz v rohu ────────────────────────────────
+  void _triggerScoreFlash() {
+    _scoreFlashTimer?.cancel();
+    setState(() {
+      _scoreFlashVisible = true;
+      _scoreFlashOpacity = 1.0;
+    });
+    // Po 2s začne fade 0.5s
+    _scoreFlashTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      // Fade out za 0.5s (16ms kroky)
+      int steps = 0;
+      Timer.periodic(const Duration(milliseconds: 16), (t) {
+        if (!mounted) { t.cancel(); return; }
+        steps++;
+        final opacity = 1.0 - (steps / 31); // 31 kroků ≈ 0.5s
+        if (opacity <= 0) {
+          t.cancel();
+          setState(() { _scoreFlashVisible = false; _scoreFlashOpacity = 0; });
+        } else {
+          setState(() => _scoreFlashOpacity = opacity);
+        }
+      });
+    });
+    // Pulz čísla v rohu – zvětší na 200% za 0.25s, pak zpět za 0.25s
+    _triggerScorePulse();
+  }
+
+  void _triggerScorePulse() {
+    if (_scorePulsing) return;
+    _scorePulsing = true;
+    int steps = 0;
+    Timer.periodic(const Duration(milliseconds: 16), (t) {
+      if (!mounted) { t.cancel(); return; }
+      steps++;
+      final progress = steps / 31; // 0.5s celkem
+      final scale = progress < 0.5
+          ? 1.0 + progress * 2    // 1.0 → 2.0 za první půlku
+          : 2.0 - (progress - 0.5) * 2; // 2.0 → 1.0 za druhou půlku
+      if (steps >= 31) {
+        t.cancel();
+        setState(() { _scoreDisplayScale = 1.0; _scorePulsing = false; });
+      } else {
+        setState(() => _scoreDisplayScale = scale.clamp(1.0, 2.0));
+      }
+    });
   }
 
   void _respawnToCheckpoint() {
     _deathStageTimer?.cancel();
-    worldX = lastCheckpointWorldX;
+    worldX     = lastCheckpointWorldX;
+    // _runMeters se neresetuje – měří celkovou vzdálenost od startu levelu
     startTime = DateTime.now().subtract(widget.checkpointFreq * checkpoints);
     nextCheckpointIn = widget.checkpointFreq;
     _stickToGround();
@@ -998,7 +1150,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     if (widget.modeName == 'ENDLESS') {
       PlayerProfile.I.addMiles(5);
       AchLogic.I.onEndlessBanner();
-      LeaderboardModel.I.updatePlayer(SettingsService.I.username, PlayerProfile.I.milesTotal);
+      LeaderboardModel.I.updatePlayer(SettingsService.I.username, PlayerProfile.I.milesTotal,
+          km: _bestMeters);
     }
   }
 
@@ -1023,7 +1176,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       case 'ENDLESS': break;
     }
 
-    LeaderboardModel.I.updatePlayer(SettingsService.I.username, PlayerProfile.I.milesTotal);
+    LeaderboardModel.I.updatePlayer(SettingsService.I.username, PlayerProfile.I.milesTotal,
+        km: _bestMeters);
     _showFinishDialog();
   }
 
@@ -1189,6 +1343,85 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   // ———————————————————————————————————————————————————————————
   // Background helpers
   // ———————————————————————————————————————————————————————————
+  // ── DEV menu (vpravo dole) ───────────────────────────────────
+  Widget _buildDevMenu() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        // Přegenerovat seed (reset bestX + nový seed)
+        FloatingActionButton.small(
+          heroTag: 'dev_regen',
+          tooltip: 'Přegenerovat level (DEV)',
+          backgroundColor: const Color(0xFFB03030),
+          onPressed: () async {
+            await regenerateLevel();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('🎲 Seed resetován – nový level'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          },
+          child: const Icon(Icons.refresh, size: 18),
+        ),
+        const SizedBox(height: 8),
+        // Reset pouze bestWorldX (seed zůstane, vzdálenost se resetuje)
+        FloatingActionButton.small(
+          heroTag: 'dev_reset_dist',
+          tooltip: 'Reset vzdálenosti (DEV)',
+          backgroundColor: const Color(0xFF307030),
+          onPressed: () async {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.remove(widget.bestXPrefsKey);
+            setState(() { _bestMeters = 0; _runMeters = 0; });
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('📍 Vzdálenost resetována – seed zachován'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          },
+          child: const Icon(Icons.social_distance, size: 18),
+        ),
+        const SizedBox(height: 8),
+        // Instant win
+        FloatingActionButton(
+          heroTag: 'dev_win',
+          tooltip: 'Dokončit level (DEV)',
+          onPressed: _devInstantWin,
+          child: const Icon(Icons.crop_square),
+        ),
+      ],
+    );
+  }
+
+  // Formátování vzdálenosti v dobových jednotkách
+  // Vstup = metry (double)
+  // Pod 1000: kroků / steps
+  // Nad 1000: mil / miles (1 des. místo)
+  // 1 míle = 1000 kroků (zjednodušená antická míle)
+  static const double _stepsPerMile = 1000.0;
+
+  String _formatSteps(double meters) {
+    final isCz = SettingsService.I.lang == Lang.cz;
+    if (meters < _stepsPerMile) {
+      final steps = meters.round();
+      return isCz ? '$steps kroků' : '$steps steps';
+    }
+    final miles = meters / _stepsPerMile;
+    return isCz
+        ? '${miles.toStringAsFixed(1)} mil'
+        : '${miles.toStringAsFixed(1)} miles';
+  }
+
+  // HUD zobrazuje nejlepší dosažené metry v tomto levelu
+  double get _totalMeters => _bestMeters;
+
   Widget _buildBackgroundLayer() {
     if (_hasCustomBackground) return widget.backgroundBuilder!(context);
     final ctrl = _bgGifCtrl;
@@ -1314,11 +1547,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
     return Scaffold(
       backgroundColor: Colors.black,
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Dokončit seed (DEV)',
-        onPressed: _devInstantWin,
-        child: const Icon(Icons.crop_square),
-      ),
+      floatingActionButton: _buildDevMenu(),
       body: GestureDetector(
         onTapDown: (_) => _jump(),
         // Longpress = continuous jump (spam skoků dokud drží prst)
@@ -1395,6 +1624,52 @@ class GameBaseState<TW extends GameBase> extends State<TW>
               child: _buildProgressBar(size),
             ),
 
+            // ── Skóre – levý horní roh ─────────────────────────
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              left: 12,
+              child: Transform.scale(
+                scale: _scoreDisplayScale,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _formatSteps(_totalMeters),
+                  style: TextStyle(
+                    fontFamily: 'Augarix',
+                    fontSize: size.height * 0.045, // 4.5% výšky displeje
+                    color: const Color(0xFF555555), // tmavě šedá
+                    shadows: const [Shadow(
+                      color: Color(0x88000000),
+                      offset: Offset(1, 1),
+                      blurRadius: 3,
+                    )],
+                  ),
+                ),
+              ),
+            ),
+
+            // ── Score flash – střed obrazovky ──────────────────
+            if (_scoreFlashVisible)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: Opacity(
+                      opacity: _scoreFlashOpacity,
+                      child: Text(
+                        '+${_formatSteps(_sessionNewM)}',
+                        style: TextStyle(
+                          fontFamily: 'Augarix',
+                          fontSize: size.height * scoreFlashSizePct,
+                          color: const Color(0xFF444444), // tmavě šedá
+                          shadows: const [
+                            Shadow(color: Color(0xAA000000), offset: Offset(2, 2), blurRadius: 6),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
             // 🔲 LOADING OVERLAY – černá obrazovka s běžícím Augarixem (cca 7 s)
             if (_loading)
               Positioned.fill(
@@ -1455,7 +1730,14 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final sSpikeW = _tileH * spikeScale;
     final sSpikeH = _tileH * spikeScale;
 
-    for (final ob in obstacles) {
+    // Dva průchody: nejdřív BOX základny (vzadu), pak SPIKE a nástavby (vpředu)
+    // Tím spike nikdy není zakryt základnou C
+    final renderOrder = [
+      ...obstacles.where((o) => o.type == ObstacleType.box && o.groundOffset == 0),
+      ...obstacles.where((o) => o.type == ObstacleType.box && o.groundOffset > 0),
+      ...obstacles.where((o) => o.type == ObstacleType.spike),
+    ];
+    for (final ob in renderOrder) {
       final sp = ob.type == ObstacleType.box ? _boxSprites : _spikeSprites;
       final isSpike = ob.type == ObstacleType.spike;
 

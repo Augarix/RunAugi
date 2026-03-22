@@ -65,6 +65,7 @@ flutter:
     - assets/images/MT_end.png
     - assets/images/MT_fill.png
     - assets/images/spike.png
+    - assets/images/MT_spike.png
     - assets/images/easy_BG_layer1.png
     - assets/images/MT_bg1.png
     - assets/images/MT_bg2.png

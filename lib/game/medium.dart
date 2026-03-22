@@ -12,7 +12,7 @@ class MediumRun extends GameBase {
     checkpointFreq: const Duration(seconds: 30),
     speedPercent: 110,
     spritePrefix: 'MT',
-    reactionTimeSec: 0.5,
+    reactionTimeSec: 0.6,
     backgroundBuilder: _buildBackground,
   );
 

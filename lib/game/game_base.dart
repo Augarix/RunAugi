@@ -1438,16 +1438,19 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         // Přegenerovat seed (reset bestX + nový seed)
         FloatingActionButton.small(
           heroTag: 'dev_regen',
-          tooltip: 'Přegenerovat level (DEV)',
+          tooltip: 'Smaž seedy a jdi na výběr obtížnosti (DEV)',
           backgroundColor: const Color(0xFFB03030),
           onPressed: () async {
-            await regenerateLevel();
+            // Smaž seedy všech módů
+            final prefs = await SharedPreferences.getInstance();
+            for (final mode in ['EASY', 'MEDIUM', 'HARD', 'ENDLESS']) {
+              await prefs.remove('level_seed_$mode');
+              await prefs.remove('best_worldx_v3_$mode');
+            }
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('🎲 Seed resetován – nový level'),
-                  duration: Duration(seconds: 2),
-                ),
+              MusicService.I.stopGame().then((_) => MusicService.I.ensureMenuMusic());
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const RunSelectScreen()),
               );
             }
           },
@@ -1869,7 +1872,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
           spikeRenderH = sSpikeH;
         }
         final actualW = spikeCount * spikeRenderW;
-        final spikeTop = obGroundYSpike - spikeRenderH;
+        // Spike na základně C: zanořit o 8px aby vizuálně seděl na povrchu
+        final spikeVisualSink = ob.groundOffset > 0 ? 8.0 : 0.0;
+        final spikeTop = obGroundYSpike - spikeRenderH + spikeVisualSink;
         if (screenX0 > size.width + 256 || screenX0 + actualW < -256) continue;
         for (int s = 0; s < spikeCount; s++) {
           children.add(Positioned(

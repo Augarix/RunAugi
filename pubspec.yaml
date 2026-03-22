@@ -66,7 +66,17 @@ flutter:
     - assets/images/MT_fill.png
     - assets/images/spike.png
     - assets/images/easy_BG_layer1.png
-    - assets/images/easy_BG.png
+    - assets/images/MT_bg1.png
+    - assets/images/MT_bg2.png
+    - assets/images/MT_bg3.png
+    - assets/images/easy/HL_bg1.png
+    - assets/images/easy/HL_bg2.png
+    - assets/images/easy/HL_bg3.png
+    - assets/images/easy/HL_start.png
+    - assets/images/easy/HL_mid.png
+    - assets/images/easy/HL_end.png
+    - assets/images/easy/HL_fill.png
+    - assets/images/easy/HL_spike.png
 
   fonts:
     - family: Augarix

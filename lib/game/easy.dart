@@ -12,20 +12,27 @@ class EasyRun extends GameBase {
     checkpointFreq: const Duration(seconds: 20),
     speedPercent: 100,
     spritePrefix: 'HL',
+    spriteFolder: 'assets/images/easy/',
     reactionTimeSec: 0.8,
-    backgroundBuilder: _buildEasyBackground,
+    tileScaleOverride: 5, // větší překážky – přibližně výška runnera
+    backgroundBuilder: _buildBackground,
   );
 
-  static Widget _buildEasyBackground(BuildContext context) {
-    return const ParallaxBackground(
-      backgroundAsset: 'assets/images/easy_BG.png',
-      backgroundFit: BoxFit.cover,
-      layers: [
-        ParallaxLayerConfig.oscillate(
-          asset: 'assets/images/easy_BG_layer1.png',
-          duration: Duration(seconds: 6),
-          amplitude: 12,
-          fit: BoxFit.cover,
+  static Widget _buildBackground(BuildContext context) {
+    final playing = GamePlayingScope.of(context);
+    return ParallaxBackground(
+      backgroundAsset: 'assets/images/easy/HL_bg1.png',
+      backgroundAlignment: const Alignment(0, 0.9),
+      playing: playing,
+      layers: const [
+        ParallaxLayerConfig.scroll(
+          asset: 'assets/images/easy/HL_bg2.png',
+          duration: Duration(seconds: 25),
+        ),
+        ParallaxLayerConfig.scroll(
+          asset: 'assets/images/easy/HL_bg3.png',
+          duration: Duration(seconds: 10),
+          topFraction: 0.35,
         ),
       ],
     );

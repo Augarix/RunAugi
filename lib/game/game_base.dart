@@ -47,6 +47,22 @@ class FlipMarker { final double atX; const FlipMarker(this.atX); }
 class MirrorMarker { final double atX; final double untilX; const MirrorMarker(this.atX, this.untilX); }
 
 // ———————————————————————————————————————————————————————————
+// InheritedWidget – sdílí stav přehrávání s background widgetem
+// ———————————————————————————————————————————————————————————
+class GamePlayingScope extends InheritedNotifier<ValueNotifier<bool>> {
+  const GamePlayingScope({
+    super.key,
+    required ValueNotifier<bool> notifier,
+    required super.child,
+  }) : super(notifier: notifier);
+
+  static bool of(BuildContext context) {
+    final scope = context.dependOnInheritedWidgetOfExactType<GamePlayingScope>();
+    return scope?.notifier?.value ?? false;
+  }
+}
+
+// ———————————————————————————————————————————————————————————
 // Base widget
 // ———————————————————————————————————————————————————————————
 abstract class GameBase extends StatefulWidget {
@@ -60,6 +76,15 @@ abstract class GameBase extends StatefulWidget {
   /// Prefix grafické sady dlaždic: 'MT' → MT_start.png, MT_mid.png atd.
   /// HL = hills (easy), MT = mountains (medium), CT = city (hard), EN = endless
   final String spritePrefix;
+
+  /// Složka assetů pro tento mód. Default = 'assets/images/'
+
+  /// Přepis tileScale pro tento mód. null = použij default (1.25)
+  final double? tileScaleOverride;
+
+  /// Složka kde leží sprite assety. Výchozí = 'assets/images/'.
+  /// Pro easy: 'assets/images/easy/'
+  final String spriteFolder;
 
   /// Minimální reakční čas mezi koncem překážky a začátkem další (v sekundách).
   /// Garantuje že hráč má dost času zareagovat.
@@ -82,8 +107,10 @@ abstract class GameBase extends StatefulWidget {
     required this.speedPercent,
     required this.spritePrefix,
     required this.reactionTimeSec,
+    this.spriteFolder = 'assets/images/',
     this.stayDead = false,
     this.backgroundBuilder,
+    this.tileScaleOverride,
   });
 
   /// Klíč pro SharedPreferences – každý mode má vlastní seed.
@@ -105,6 +132,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   // ── Skóre / vzdálenost ────────────────────────────────────────
   // Velikost flash textu jako % výšky displeje (landscape)
   static const double scoreFlashSizePct = 0.20; // 20% výšky = ~78px na typickém telefonu
+  /// Velikost Easy spike nezávisle na tileScaleOverride
+  static const double easySpikeScale = 4.9;
   // Přibližná konverze px → km (závisí na speed a měřítku)
   // 1 km = 1000m, baseSpeed=520px/s → při 100% speedPercent
   // Laditelná konstanta – upravit dle pocitu ve hře
@@ -147,6 +176,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   // 1.0 = nativní, 2.0 = dvojnásobné, 0.5 = poloviční.
   // Hitboxy (fyzika, kolize) nejsou ovlivněny.
   static const double tileScale   = 1.25; // +25 % dle požadavku
+  /// Efektivní tileScale – použije override pokud je nastaven
+  double get effectiveTileScale => widget.tileScaleOverride ?? tileScale;
   static const double runnerScale = 1.0;
   static const double spikeScale  = 3.25; // škálování spike (nezávislé na tileScale)
 
@@ -225,7 +256,11 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   // 🔁 Continuous jump při longpress
   Timer? _longJumpTimer;
 
+  // Notifier pro parallax pozadí – true = runner běží, false = stojí
+  final ValueNotifier<bool> bgPlayingNotifier = ValueNotifier(false);
+
   // 🔥 precache guard + loading overlay
+  bool _isRestoringLevel = false; // true = načítáme existující seed, false = generujeme nový
   bool _precached = false;
   bool _loading = true;
 
@@ -259,12 +294,12 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       const AssetImage(_deathImg),
       const AssetImage(_groundedImg),
       const AssetImage(_gearIcon),
-      const AssetImage('assets/images/spike.png'),
+      AssetImage('${widget.spriteFolder}${widget.spritePrefix}_spike.png'),
       // Dlaždice aktuálního game modu (dle spritePrefix)
-      AssetImage('assets/images/${widget.spritePrefix}_start.png'),
-      AssetImage('assets/images/${widget.spritePrefix}_mid.png'),
-      AssetImage('assets/images/${widget.spritePrefix}_fill.png'),
-      AssetImage('assets/images/${widget.spritePrefix}_end.png'),
+      AssetImage('${widget.spriteFolder}${widget.spritePrefix}_start.png'),
+      AssetImage('${widget.spriteFolder}${widget.spritePrefix}_mid.png'),
+      AssetImage('${widget.spriteFolder}${widget.spritePrefix}_fill.png'),
+      AssetImage('${widget.spriteFolder}${widget.spritePrefix}_end.png'),
       ..._runCycle.map((p) => AssetImage(p)),
     ];
 
@@ -308,6 +343,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     _runAnimTimer?.cancel();
     _longJumpTimer?.cancel();
     _scoreFlashTimer?.cancel();
+    bgPlayingNotifier.dispose();
     loop.cancel();
     _bgGifCtrl?.dispose();
     // 🎵 MUSIC: ukonči herní hudbu
@@ -340,6 +376,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
             startTime = DateTime.now();
             lastTick = Duration.zero;
           });
+          bgPlayingNotifier.value = true;
           _syncBgAnim();
           // automatický skok po GO záměrně odstraněn
         });
@@ -389,6 +426,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     _genLastWasSpike    = false;
     _genLastWasPlatform = true;
     _runMeters          = 0;
+    bgPlayingNotifier.value = false;
   }
 
   // ── Aplikuj seed (bez persistování) ──────────────────────────
@@ -410,11 +448,14 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   Future<void> _loadOrGenerateSeed() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getInt(widget.seedPrefsKey);
-    // Načti nejlepší vzdálenost pro tento level
     _bestMeters = prefs.getDouble(widget.bestXPrefsKey) ?? 0;
     if (saved != null) {
+      // Existující seed – obnovujeme level
+      _isRestoringLevel = true;
       _applySeed(saved);
     } else {
+      // Nový seed – generujeme level
+      _isRestoringLevel = false;
       final s = DateTime.now().microsecondsSinceEpoch & 0x7FFFFFFF;
       await prefs.setInt(widget.seedPrefsKey, s);
       _applySeed(s);
@@ -427,8 +468,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   Future<void> regenerateLevel() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(widget.seedPrefsKey);
-    await prefs.remove(widget.bestXPrefsKey); // reset vzdálenosti pro nový level
+    await prefs.remove(widget.bestXPrefsKey);
     _bestMeters = 0;
+    _isRestoringLevel = false; // vždy generujeme nový
     await _loadOrGenerateSeed();
     if (mounted) setState(() {});
     _syncBgAnim();
@@ -531,9 +573,13 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     while (cursor < endX && _genCount < 8) {
 
       // ── Krok 1: Typ překážky ───────────────────────────────────
-      // SPIKE (20%), TYP A – lethal box 0 mid (40%), TYP B – platform 3–10 mid (40%)
+      // EASY: jen SPIKE a TYP A (žádné B, žádné C)
+      // MEDIUM+: SPIKE (20%), TYP A (40%), TYP B (40%)
+      final isEasy = widget.modeName == 'EASY';
       final canSpike = lastLayers < highThreshold && lastWasBox;
-      final makeSpike = canSpike && rng.nextDouble() < 0.20;
+      // Easy: spike 25%, ostatní: 20%
+      // EASY: 40% spike šance (více spiků = více legionářů želvy)
+      final makeSpike = canSpike && rng.nextDouble() < (widget.modeName == 'EASY' ? 0.40 : 0.20);
 
       double obW;
       double obH;
@@ -542,13 +588,14 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       int obLayersForTracking;
 
       if (makeSpike) {
-        final sSpikeW    = _tileH * spikeScale;
-        // Spike skupina: 1–3 spiky za sebou (generujeme jako jeden wide obstacle)
-        // Spike skupina: 10%=1 spike, 40%=2 spiky, 50%=3 spiky
         final spikeRoll  = rng.nextDouble();
-        final spikeCount = spikeRoll < 0.10 ? 1 : (spikeRoll < 0.50 ? 2 : 3);
-        obW               = spikeCount * sSpikeW;
-        obH               = _tileH * spikeScale;
+        // EASY: max 2 spike (3 nejdou přeskočit), vlastní easySpikeScale
+        // MEDIUM+: 1-3 spike, normální spikeScale
+        final spikeCount = isEasy
+            ? 1 // EASY: vždy jen 1 spike
+            : (spikeRoll < 0.10 ? 1 : (spikeRoll < 0.50 ? 2 : 3));
+        obW = spikeCount * (isEasy ? _tileH * easySpikeScale : _tileH * spikeScale);
+        obH = isEasy ? _tileH * easySpikeScale : _tileH * spikeScale;
         obType            = ObstacleType.spike;
         obIsPlatform      = false;
         obLayersForTracking = highThreshold;
@@ -559,16 +606,20 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         obH = layers * sTileHGen;
         obLayersForTracking = layers;
 
-        // 40% TYP A (lethal – žádný mid), 60% TYP B (platform – 3–10 mid)
-        if (rng.nextDouble() < 0.40) {
+        if (isEasy) {
+          // EASY: jen HL_mid dlaždice, 3–15 bloků, 1 vrstva
+          // Hitbox = vizuální rozměry (effectiveTileScale) aby přesně kopíroval obrázek
+          final midCols = 3 + rng.nextInt(13); // 3–15 dlaždic
+          obW          = midCols * _tileMidW * effectiveTileScale; // vizuální šířka
+          obH          = _tileH * effectiveTileScale; // vizuální výška (1 vrstva)
+          obLayersForTracking = 1;
+          obIsPlatform = true; // walkable celý povrch
+        } else if (rng.nextDouble() < 0.40) {
           // TYP A: [start][end] – smrtící shora
-          obW          = (_tileStartW + _tileEndW) * tileScale; // 40px
+          obW          = (_tileStartW + _tileEndW) * tileScale;
           obIsPlatform = false;
         } else {
           // TYP B: [start][mid×3–10][end] – walkable odrazový můstek
-          // ob.width = přesná šířka z midCols, bez ořezu – jinak renderer
-          // spočítá méně mid sloupců než generátor zamýšlel
-          // Pozn: pokud se stane základnou C, midCols se přegeneruje níže
           final midCols = 3 + rng.nextInt(8); // 3–10
           obW          = _boxWidth(midCols);
           obIsPlatform = true;
@@ -611,7 +662,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
       // ── Krok 2.5: Typ C – přepočítej obW PŘED přidáním základny ──
       // P(C|B) = 0.37 → P(C) = 0.60 × 0.37 ≈ 22% = každá 4.5. překážka
-      final isTypeC = obIsPlatform &&
+      // Easy: žádný typ C
+      final isTypeC = !isEasy &&
+          obIsPlatform &&
           obType == ObstacleType.box &&
           rng.nextDouble() < 0.37;
 
@@ -747,7 +800,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     if (dtSec <= 0) return;
 
     worldX    += speed * dtSec;
-    _runMeters += speedMps * dtSec; // metry přímo
+    // _runMeters = aktuální pozice v levelu přepočtená na metry
+    // worldX / speed * speedMps = proporcionální přepočet
+    _runMeters = worldX / speed * speedMps;
 
     if (widget.modeName == 'HARD') {
       for (final m in mirrors) {
@@ -837,32 +892,37 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final baseGround = screenH * groundYFrac;
     double ground = baseGround;
 
+    final isEasyMode = widget.modeName == 'EASY';
+
     for (final ob in obstacles) {
       if (ob.type != ObstacleType.box) continue;
 
-      // Lokální podlaha: zem nebo vrchol základny (typ C)
       final localFloor = baseGround - ob.groundOffset;
       final obTop      = localFloor - ob.height;
-      final sEndW      = _tileEndW * tileScale;
-      // Slope začíná 25px za koncem END dlaždice (vizuálně za hranou)
-      // Délka slope = ob.height → úhel vždy ~45° bez ohledu na výšku překážky
-      const slopeShift = 25.0; // posun doprava od konce END dlaždice
-      final endStart   = ob.x + ob.width - sEndW + slopeShift;
-      final slopeLen   = ob.height + runnerRadius;
-      final rightEdge  = endStart + slopeLen;
 
-      final sStartW  = _tileStartW * tileScale;
-      final midStart = ob.x + sStartW;
-
-      if (runnerWorldX < midStart || runnerWorldX > rightEdge) continue;
-
-      if (runnerWorldX <= endStart) {
+      if (isEasyMode) {
+        // EASY: celý povrch walkable, žádný slope
+        // Hitbox = celá šířka ob.x až ob.x + ob.width
+        if (runnerWorldX < ob.x || runnerWorldX > ob.x + ob.width + runnerRadius) continue;
         if (obTop < ground) ground = obTop;
       } else {
-        // End slope – klesá z obTop na localFloor
-        final t = (runnerWorldX - endStart) / (rightEdge - endStart);
-        final slope = obTop + t * (localFloor - obTop);
-        if (slope < ground) ground = slope;
+        final sEndW      = _tileEndW * tileScale;
+        const slopeShift = 25.0;
+        final endStart   = ob.x + ob.width - sEndW + slopeShift;
+        final slopeLen   = ob.height + runnerRadius;
+        final rightEdge  = endStart + slopeLen;
+        final sStartW    = _tileStartW * tileScale;
+        final midStart   = ob.x + sStartW;
+
+        if (runnerWorldX < midStart || runnerWorldX > rightEdge) continue;
+
+        if (runnerWorldX <= endStart) {
+          if (obTop < ground) ground = obTop;
+        } else {
+          final t = (runnerWorldX - endStart) / (rightEdge - endStart);
+          final slope = obTop + t * (localFloor - obTop);
+          if (slope < ground) ground = slope;
+        }
       }
     }
     return ground;
@@ -888,19 +948,30 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       final localFloor = baseGround - ob.groundOffset;
       final top    = localFloor - ob.height;
       final bottom = localFloor;
-      final contactY = rBottom.clamp(top, bottom);
-      final t = (bottom - contactY) / (bottom - top).clamp(1.0, double.infinity);
-      final effectiveHalfW = (ob.width / 2) * (0.20 + 0.80 * (1.0 - t));
-      final obCenterX = ob.x + ob.width / 2;
-      // Trojúhelník a,b nahoře, c dole – stejná logika jako _collides
-      final tSpike = ((contactY - rTop) / (rBottom - rTop).clamp(1.0, double.infinity)).clamp(0.0, 1.0);
-      final rLeftSpike  = rLeft  + tSpike * (runnerWorldFront - rLeft);
-      final rRightSpike = rRight + tSpike * (runnerWorldFront - rRight);
-      final overlapX = rRightSpike >= obCenterX - effectiveHalfW &&
-          rLeftSpike  <= obCenterX + effectiveHalfW;
-      final effectiveTop = top + ob.height * 0.25;
-      final overlapY = rBottom >= effectiveTop && rTop <= bottom;
-      if (overlapX && overlapY) return true;
+
+      // Easy spike: jednoduchý obdélníkový hitbox (ob.width × ob.height)
+      // Medium spike: trojúhelníkový hitbox
+      final bool hit;
+      if (widget.tileScaleOverride != null) {
+        // Přímý obdélník – hitbox přesně odpovídá vizuálu
+        final overlapX = rRight >= ob.x && rLeft <= ob.x + ob.width;
+        final overlapY = rBottom >= top && rTop <= bottom;
+        hit = overlapX && overlapY;
+      } else {
+        final contactY = rBottom.clamp(top, bottom);
+        final t = (bottom - contactY) / (bottom - top).clamp(1.0, double.infinity);
+        final effectiveHalfW = (ob.width / 2) * (0.20 + 0.80 * (1.0 - t));
+        final obCenterX = ob.x + ob.width / 2;
+        final tSpike = ((contactY - rTop) / (rBottom - rTop).clamp(1.0, double.infinity)).clamp(0.0, 1.0);
+        final rLeftSpike  = rLeft  + tSpike * (runnerWorldFront - rLeft);
+        final rRightSpike = rRight + tSpike * (runnerWorldFront - rRight);
+        final overlapX = rRightSpike >= obCenterX - effectiveHalfW &&
+            rLeftSpike  <= obCenterX + effectiveHalfW;
+        final effectiveTop = top + ob.height * 0.25;
+        final overlapY = rBottom >= effectiveTop && rTop <= bottom;
+        hit = overlapX && overlapY;
+      }
+      if (hit) return true;
     }
     return false;
   }
@@ -998,6 +1069,15 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       if (ob.type == ObstacleType.spike) {
         // SPIKE: jakýkoli kontakt je smrt
         return true;
+      } else if (widget.modeName == 'EASY') {
+        // EASY BOX: smrtící pouze čelní náraz (zleva), nahoře a konec jsou OK
+        final currentGroundTop = _effectiveGroundY(h, _runnerWorldX);
+        // Stojíme nahoře → OK
+        if (grounded && currentGroundTop < baseGround) continue;
+        // Přelet shora → OK
+        if (rBottom <= top + 6) continue;
+        // Čelní náraz zleva → smrt
+        if ((rLeftWorld < oLeft) && (rRightWorld > oLeft + 1)) return true;
       } else {
         // BOX:
         final sStartW  = _tileStartW * tileScale;
@@ -1075,6 +1155,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       _deadFrozen = true;
       _gameRunning = false;
     });
+    bgPlayingNotifier.value = false;
     _syncBgAnim();
     _armGroundedAfterDeath();
   }
@@ -1134,6 +1215,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     startTime = DateTime.now().subtract(widget.checkpointFreq * checkpoints);
     nextCheckpointIn = widget.checkpointFreq;
     _stickToGround();
+    bgPlayingNotifier.value = true; // rovnou bez GO intra
     setState(() {
       _deadFrozen = false;
       paused = false;
@@ -1267,6 +1349,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   void _openIngame() {
     if (_loading) return; // během načítání neotvírat
     setState(() => paused = true);
+    bgPlayingNotifier.value = false;
     _syncBgAnim();
     showDialog(
       context: context,
@@ -1290,6 +1373,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     ).then((_) {
       if (mounted) {
         setState(() => paused = false);
+        if (_gameRunning) bgPlayingNotifier.value = true;
         _syncBgAnim();
       }
     });
@@ -1307,21 +1391,23 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   // Formát: assets/images/XX_start.png / XX_mid.png / XX_fill.png / XX_end.png
   ({String start, String mid, String fill, String end}) get _boxSprites {
     final p = widget.spritePrefix;
+    final f = widget.spriteFolder;
     return (
-    start: 'assets/images/${p}_start.png',
-    mid:   'assets/images/${p}_mid.png',
-    fill:  'assets/images/${p}_fill.png',
-    end:   'assets/images/${p}_end.png',
+    start: '${f}${p}_start.png',
+    mid:   '${f}${p}_mid.png',
+    fill:  '${f}${p}_fill.png',
+    end:   '${f}${p}_end.png',
     );
   }
 
-  // SPIKE: jeden řádek, bez fill vrstev
-  static const _spikeSprites = (
-  start: 'assets/images/spike.png',
-  mid:   'assets/images/spike.png',
-  fill:  'assets/images/spike.png',
-  end:   'assets/images/spike.png',
-  );
+  // SPIKE: sprite dle prefixu (HL_spike.png, MT_spike.png atd.)
+  // Fallback na spike.png pokud prefix-specifický neexistuje
+  ({String start, String mid, String fill, String end}) get _spikeSprites {
+    final p = widget.spritePrefix;
+    final f = widget.spriteFolder;
+    final path = '${f}${p}_spike.png';
+    return (start: path, mid: path, fill: path, end: path);
+  }
 
   // Bezpečný obrázek – nikdy nehodí ErrorWidget (když asset chybí → prázdno)
   Widget _safeImage(String asset, {BoxFit fit = BoxFit.fill}) {
@@ -1423,7 +1509,11 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   double get _totalMeters => _bestMeters;
 
   Widget _buildBackgroundLayer() {
-    if (_hasCustomBackground) return widget.backgroundBuilder!(context);
+    if (_hasCustomBackground) {
+      // Builder zajistí čerstvý context jako child GamePlayingScope
+      // aby GamePlayingScope.of() správně zaregistroval dependency a rebuildo
+      return Builder(builder: (ctx) => widget.backgroundBuilder!(ctx));
+    }
     final ctrl = _bgGifCtrl;
     if (ctrl == null) return const SizedBox.expand();
     return SizedBox.expand(
@@ -1545,168 +1635,175 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     // viditelné překážky jako dlaždice
     final obstacleWidgets = _buildVisibleObstacleTiles(size, runnerScreenX);
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      floatingActionButton: _buildDevMenu(),
-      body: GestureDetector(
-        onTapDown: (_) => _jump(),
-        // Longpress = continuous jump (spam skoků dokud drží prst)
-        onLongPressStart: (_) {
-          _longJumpTimer?.cancel();
-          _jump(); // okamžitý první skok
-          _longJumpTimer = Timer.periodic(
-            const Duration(milliseconds: 280),
-                (_) => _jump(),
-          );
-        },
-        onLongPressEnd: (_) {
-          _longJumpTimer?.cancel();
-          _longJumpTimer = null;
-        },
-        onLongPressCancel: () {
-          _longJumpTimer?.cancel();
-          _longJumpTimer = null;
-        },
-        child: Stack(
-          children: [
-            // 🎞️ pozadí – jeden widget řízený controllerem
-            Positioned.fill(child: _buildBackgroundLayer()),
-            _buildBackgroundOverlay(),
+    return GamePlayingScope(
+      notifier: bgPlayingNotifier,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        floatingActionButton: _buildDevMenu(),
+        body: GestureDetector(
+          onTapDown: (_) => _jump(),
+          // Longpress = continuous jump (spam skoků dokud drží prst)
+          onLongPressStart: (_) {
+            _longJumpTimer?.cancel();
+            _jump(); // okamžitý první skok
+            _longJumpTimer = Timer.periodic(
+              const Duration(milliseconds: 280),
+                  (_) => _jump(),
+            );
+          },
+          onLongPressEnd: (_) {
+            _longJumpTimer?.cancel();
+            _longJumpTimer = null;
+          },
+          onLongPressCancel: () {
+            _longJumpTimer?.cancel();
+            _longJumpTimer = null;
+          },
+          child: Stack(
+            children: [
+              // 🎞️ pozadí – jeden widget řízený controllerem
+              Positioned.fill(child: _buildBackgroundLayer()),
+              _buildBackgroundOverlay(),
 
-            // HUD & linky (zem/strop + checkpointy)
-            CustomPaint(
-              painter: _RunnerPainter(
-                mode: widget.modeName,
-                worldX: worldX,
-                checkpoints: checkpoints,
-                runnerY: runnerY,
-                gravityFlipped: gravityFlipped,
-                mirroring: mirroring,
-                lengthMs: widget.length.inMilliseconds,
-                introMs: widget.minIntro.inMilliseconds,
-                speedPxPerSec: speed,
-                obstacles: obstacles,
-                runnerScreenX: runnerScreenX,
+              // HUD & linky (zem/strop + checkpointy)
+              CustomPaint(
+                painter: _RunnerPainter(
+                  mode: widget.modeName,
+                  worldX: worldX,
+                  checkpoints: checkpoints,
+                  runnerY: runnerY,
+                  gravityFlipped: gravityFlipped,
+                  mirroring: mirroring,
+                  lengthMs: widget.length.inMilliseconds,
+                  introMs: widget.minIntro.inMilliseconds,
+                  speedPxPerSec: speed,
+                  obstacles: obstacles,
+                  runnerScreenX: runnerScreenX,
+                ),
+                child: const SizedBox.expand(),
               ),
-              child: const SizedBox.expand(),
-            ),
 
-            // Překážky (dlaždicované obrázky)
-            ...obstacleWidgets,
+              // Překážky (dlaždicované obrázky)
+              ...obstacleWidgets,
 
-            // Postavička – škálovaná přes runnerScale
-            Positioned(
-              left: runnerScreenX - (runnerRadius * 2 * runnerScale),
-              top:  runnerY       - (runnerRadius * 2 * runnerScale),
-              width:  runnerRadius * 4 * runnerScale,
-              height: runnerRadius * 4 * runnerScale,
-              child: IgnorePointer(
-                ignoring: true,
-                child: Image.asset(playerSprite, fit: BoxFit.contain),
+              // Postavička – škálovaná přes runnerScale
+              Positioned(
+                left: runnerScreenX - (runnerRadius * 2 * runnerScale),
+                top:  runnerY       - (runnerRadius * 2 * runnerScale),
+                width:  runnerRadius * 4 * runnerScale,
+                height: runnerRadius * 4 * runnerScale,
+                child: IgnorePointer(
+                  ignoring: true,
+                  child: Image.asset(playerSprite, fit: BoxFit.contain),
+                ),
               ),
-            ),
 
-            // pravý horní roh – tlačítko do ingame settings
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              right: 8,
-              child: GestureDetector(
-                onTap: _openIngame,
-                child: Image.asset(_gearIcon, width: 32, height: 32, fit: BoxFit.contain),
+              // pravý horní roh – tlačítko do ingame settings
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 8,
+                right: 8,
+                child: GestureDetector(
+                  onTap: _openIngame,
+                  child: Image.asset(_gearIcon, width: 32, height: 32, fit: BoxFit.contain),
+                ),
               ),
-            ),
 
-            // ── Progress bar nahoře uprostřed ──────────────────
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 10,
-              left: size.width * 0.20,
-              right: size.width * 0.20,
-              child: _buildProgressBar(size),
-            ),
+              // ── Progress bar nahoře uprostřed ──────────────────
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 10,
+                left: size.width * 0.20,
+                right: size.width * 0.20,
+                child: _buildProgressBar(size),
+              ),
 
-            // ── Skóre – levý horní roh ─────────────────────────
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              left: 12,
-              child: Transform.scale(
-                scale: _scoreDisplayScale,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  _formatSteps(_totalMeters),
-                  style: TextStyle(
-                    fontFamily: 'Augarix',
-                    fontSize: size.height * 0.045, // 4.5% výšky displeje
-                    color: const Color(0xFF555555), // tmavě šedá
-                    shadows: const [Shadow(
-                      color: Color(0x88000000),
-                      offset: Offset(1, 1),
-                      blurRadius: 3,
-                    )],
+              // ── Skóre – levý horní roh ─────────────────────────
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 8,
+                left: 12,
+                child: Transform.scale(
+                  scale: _scoreDisplayScale,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _formatSteps(_totalMeters),
+                    style: TextStyle(
+                      fontFamily: 'Augarix',
+                      fontSize: size.height * 0.045, // 4.5% výšky displeje
+                      color: const Color(0xFF555555), // tmavě šedá
+                      shadows: const [Shadow(
+                        color: Color(0x88000000),
+                        offset: Offset(1, 1),
+                        blurRadius: 3,
+                      )],
+                    ),
                   ),
                 ),
               ),
-            ),
 
-            // ── Score flash – střed obrazovky ──────────────────
-            if (_scoreFlashVisible)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: Center(
-                    child: Opacity(
-                      opacity: _scoreFlashOpacity,
-                      child: Text(
-                        '+${_formatSteps(_sessionNewM)}',
-                        style: TextStyle(
-                          fontFamily: 'Augarix',
-                          fontSize: size.height * scoreFlashSizePct,
-                          color: const Color(0xFF444444), // tmavě šedá
-                          shadows: const [
-                            Shadow(color: Color(0xAA000000), offset: Offset(2, 2), blurRadius: 6),
+              // ── Score flash – střed obrazovky ──────────────────
+              if (_scoreFlashVisible)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Center(
+                      child: Opacity(
+                        opacity: _scoreFlashOpacity,
+                        child: Text(
+                          '+${_formatSteps(_sessionNewM)}',
+                          style: TextStyle(
+                            fontFamily: 'Augarix',
+                            fontSize: size.height * scoreFlashSizePct,
+                            color: const Color(0xFF444444), // tmavě šedá
+                            shadows: const [
+                              Shadow(color: Color(0xAA000000), offset: Offset(2, 2), blurRadius: 6),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // 🔲 LOADING OVERLAY – černá obrazovka s běžícím Augarixem (cca 7 s)
+              if (_loading)
+                Positioned.fill(
+                  child: AbsorbPointer(
+                    absorbing: true,
+                    child: Container(
+                      color: Colors.black,
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 160,
+                              height: 160,
+                              child: Image.asset(
+                                _runCycle[_runFrame],
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              _isRestoringLevel
+                                  ? (SettingsService.I.lang == Lang.cz
+                                  ? 'Nahrávám level...'
+                                  : 'Restoring level...')
+                                  : (SettingsService.I.lang == Lang.cz
+                                  ? 'Generuji level...'
+                                  : 'Generating level...'),
+                              style: const TextStyle(
+                                fontFamily: 'Augarix',
+                                color: Colors.white70,
+                                fontSize: 16,
+                              ),
+                            ),
                           ],
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-
-            // 🔲 LOADING OVERLAY – černá obrazovka s běžícím Augarixem (cca 7 s)
-            if (_loading)
-              Positioned.fill(
-                child: AbsorbPointer(
-                  absorbing: true,
-                  child: Container(
-                    color: Colors.black,
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 160,
-                            height: 160,
-                            child: Image.asset(
-                              _runCycle[_runFrame],
-                              fit: BoxFit.contain,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          Text(
-                            SettingsService.I.lang == Lang.cz
-                                ? 'Generuji...'
-                                : 'Generating...',
-                            style: const TextStyle(
-                              fontFamily: 'Augarix',
-                              color: Colors.white70,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1720,15 +1817,18 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final List<Widget> children = [];
 
     // Škálované rozměry dlaždic (box)
-    final sStartW = _tileStartW * tileScale;
-    final sEndW   = _tileEndW   * tileScale;
-    final sMidW   = _tileMidW   * tileScale;
-    final sFillW  = _tileMidW   * tileScale;
-    final sTileH  = _tileH      * tileScale;
+    final sStartW = _tileStartW * effectiveTileScale;
+    final sEndW   = _tileEndW   * effectiveTileScale;
+    final sMidW   = _tileMidW   * effectiveTileScale;
+    final sFillW  = _tileMidW   * effectiveTileScale;
+    final sTileH  = _tileH      * effectiveTileScale;
+    // Vizuální scale faktor: ob.height je spočítán s tileScale (fyzika),
+    // renderer ho musí přepočítat na effectiveTileScale (vizuál)
+    final visualScaleFactor = effectiveTileScale / tileScale;
 
-    // Spike používá vlastní scale (spike.png je čtvercový – šířka = výška)
-    final sSpikeW = _tileH * spikeScale;
-    final sSpikeH = _tileH * spikeScale;
+    // Spike používá vlastní scale + visualScaleFactor pro vizuální zvětšení
+    final sSpikeW = _tileH * spikeScale * visualScaleFactor;
+    final sSpikeH = _tileH * spikeScale * visualScaleFactor;
 
     // Dva průchody: nejdřív BOX základny (vzadu), pak SPIKE a nástavby (vpředu)
     // Tím spike nikdy není zakryt základnou C
@@ -1750,88 +1850,142 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
       // ── Spike: jednoduchý rendering (1 vrstva, vlastní scale) ──
       if (isSpike) {
-        final spikeCount = max(1, (ob.width / sSpikeW).round());
-        final actualW = spikeCount * sSpikeW;
         final obGroundYSpike = groundY - ob.groundOffset;
-        final spikeTop = obGroundYSpike - sSpikeH;
+        // Pro Easy: ob.width a ob.height jsou vizuální → použij přímo
+        // Pro Medium+: ob.width je fyzická → přepočítej přes spikeW
+        final double spikeRenderW;
+        final double spikeRenderH;
+        final int spikeCount;
+        if (widget.tileScaleOverride != null) {
+          // Easy: spike = blok želvy (midW × effectiveTileScale)
+          spikeRenderW = _tileH * easySpikeScale;
+          spikeRenderH = _tileH * easySpikeScale;
+          spikeCount   = max(1, (ob.width / spikeRenderW).round());
+        } else {
+          // Medium+: fyzická šířka → vizuální
+          final physSpikeW = _tileH * spikeScale;
+          spikeCount   = max(1, (ob.width / physSpikeW).round());
+          spikeRenderW = sSpikeW;
+          spikeRenderH = sSpikeH;
+        }
+        final actualW = spikeCount * spikeRenderW;
+        final spikeTop = obGroundYSpike - spikeRenderH;
         if (screenX0 > size.width + 256 || screenX0 + actualW < -256) continue;
         for (int s = 0; s < spikeCount; s++) {
           children.add(Positioned(
-            left: screenX0 + s * sSpikeW,
+            left: screenX0 + s * spikeRenderW,
             top: spikeTop,
-            width: sSpikeW,
-            height: sSpikeH,
+            width: spikeRenderW,
+            height: spikeRenderH,
             child: _safeImage(sp.mid, fit: BoxFit.fill),
           ));
         }
-        continue; // spike hotový, přeskoč box rendering
+        continue;
       }
 
-      // ── Box: počet mid dlaždic a fill řad ─────────────────────
-      final midCols = max(1, ((ob.width - sStartW - sEndW) / sMidW).round());
-      final fillRowCount = max(0, ((ob.height - sTileH) / sTileH).ceil());
-
-      // Culling – použij nejlevější bod (spodní řada pyramidy)
-      final leftmost  = screenX0 - fillRowCount * sFillW;
-      final rightmost = screenX0 + sStartW + midCols * sMidW + sEndW;
-      if (leftmost > size.width + 256 || rightmost < -256) continue;
-
-      // Lokální groundY – zohledni groundOffset pro typ C překážky
+      // ── Box rendering ─────────────────────────────────────────
       final obGroundY = groundY - ob.groundOffset;
 
-      // ── Pyramid rendering: mid nahoře, fill řady dolů k zemi ──
-      // ── Řada 0: mid vrchol (start + mid×n + end) ──────────────
-      final midTop = obGroundY - (fillRowCount + 1) * sTileH;
-      double x = screenX0;
-      children.add(Positioned(
-        left: x, top: midTop, width: sStartW, height: sTileH,
-        child: _safeImage(sp.start, fit: BoxFit.fill),
-      ));
-      x += sStartW;
-      for (int m = 0; m < midCols; m++) {
+      if (widget.modeName == 'EASY') {
+        // Easy: jen HL_mid dlaždice za sebou s 10% překryvem
+        // Dlaždice N+1 překryje dlaždici N zprava o 10% šířky
+        final midW    = sMidW; // šířka jedné dlaždice
+        final step    = midW * 0.90; // krok = 90% šířky (10% překryv)
+        final midCols = max(1, (ob.width / step).round());
+        final imgTop  = obGroundY - sTileH;
+        if (screenX0 > size.width + 256 || screenX0 + ob.width < -256) continue;
+        for (int m = 0; m < midCols; m++) {
+          children.add(Positioned(
+            left: screenX0 + m * step,
+            top: imgTop,
+            width: midW,
+            height: sTileH,
+            child: _safeImage(sp.mid, fit: BoxFit.fill),
+          ));
+        }
+      } else if (widget.tileScaleOverride != null) {
+        // EASY: flat rendering – jen mid dlaždice v jedné řadě
+        // ob.width a ob.height jsou už vizuální (effectiveTileScale)
+        final midCols = max(1, (ob.width / sMidW).round());
+        final rightmost = screenX0 + midCols * sMidW;
+        if (screenX0 > size.width + 256 || rightmost < -256) continue;
+
+        final midTop = obGroundY - sTileH;
+        for (int m = 0; m < midCols; m++) {
+          children.add(Positioned(
+            left: screenX0 + m * sMidW,
+            top: midTop,
+            width: sMidW,
+            height: sTileH,
+            child: _safeImage(sp.mid, fit: BoxFit.fill),
+          ));
+        }
+        continue; // Easy hotovo – přeskoč Medium pyramid rendering
+      } else {
+        // MEDIUM+: pyramid rendering
+        final physMidW = _tileMidW * tileScale;
+        final physStartW = _tileStartW * tileScale;
+        final physEndW = _tileEndW * tileScale;
+        final midCols = max(1, ((ob.width - physStartW - physEndW) / physMidW).round());
+        final visObH = ob.height * visualScaleFactor;
+        final fillRowCount = max(0, ((visObH - sTileH) / sTileH).ceil());
+
+        final leftmost  = screenX0 - fillRowCount * sFillW;
+        final rightmost = screenX0 + sStartW + midCols * sMidW + sEndW;
+        if (leftmost > size.width + 256 || rightmost < -256) continue;
+
+        final midTop = obGroundY - (fillRowCount + 1) * sTileH;
+        double x = screenX0;
         children.add(Positioned(
-          left: x, top: midTop, width: sMidW, height: sTileH,
-          child: _safeImage(sp.mid, fit: BoxFit.fill),
-        ));
-        x += sMidW;
-      }
-      children.add(Positioned(
-        left: x, top: midTop, width: sEndW, height: sTileH,
-        child: _safeImage(sp.end, fit: BoxFit.fill),
-      ));
-
-      // ── Fill řady: od mid dolů k základně ─────────────────────
-      // Řada 1 (těsně pod mid) → řada fillRowCount (základna u země)
-      // Každá řada dolů je širší o 1 fill na levé straně.
-      // fill počet = celkový počet dlaždic řady nad ní
-      int prevRowTotal = 1 + midCols + 1;
-
-      for (int row = 1; row <= fillRowCount; row++) {
-        // row=1 je těsně pod mid, row=fillRowCount je základna u země
-        final rowY      = obGroundY - (fillRowCount - row + 1) * sTileH;
-        final rowX      = screenX0 - row * sFillW;
-        final fillCount = prevRowTotal;
-
-        double fx = rowX;
-        children.add(Positioned(
-          left: fx, top: rowY, width: sStartW, height: sTileH,
+          left: x, top: midTop, width: sStartW, height: sTileH,
           child: _safeImage(sp.start, fit: BoxFit.fill),
         ));
-        fx += sStartW;
-        for (int f = 0; f < fillCount; f++) {
+        x += sStartW;
+        for (int m = 0; m < midCols; m++) {
           children.add(Positioned(
-            left: fx, top: rowY, width: sFillW, height: sTileH,
-            child: _safeImage(sp.fill, fit: BoxFit.fill),
+            left: x, top: midTop, width: sMidW, height: sTileH,
+            child: _safeImage(sp.mid, fit: BoxFit.fill),
           ));
-          fx += sFillW;
+          x += sMidW;
         }
         children.add(Positioned(
-          left: fx, top: rowY, width: sEndW, height: sTileH,
+          left: x, top: midTop, width: sEndW, height: sTileH,
           child: _safeImage(sp.end, fit: BoxFit.fill),
         ));
 
-        prevRowTotal = 1 + fillCount + 1;
-      }
+        // ── Fill řady: od mid dolů k základně ─────────────────────
+        // Řada 1 (těsně pod mid) → řada fillRowCount (základna u země)
+        // Každá řada dolů je širší o 1 fill na levé straně.
+        // fill počet = celkový počet dlaždic řady nad ní
+        int prevRowTotal = 1 + midCols + 1;
+
+        for (int row = 1; row <= fillRowCount; row++) {
+          // row=1 je těsně pod mid, row=fillRowCount je základna u země
+          final rowY      = obGroundY - (fillRowCount - row + 1) * sTileH;
+          final rowX      = screenX0 - row * sFillW;
+          final fillCount = prevRowTotal;
+
+          double fx = rowX;
+          children.add(Positioned(
+            left: fx, top: rowY, width: sStartW, height: sTileH,
+            child: _safeImage(sp.start, fit: BoxFit.fill),
+          ));
+          fx += sStartW;
+          for (int f = 0; f < fillCount; f++) {
+            children.add(Positioned(
+              left: fx, top: rowY, width: sFillW, height: sTileH,
+              child: _safeImage(sp.fill, fit: BoxFit.fill),
+            ));
+            fx += sFillW;
+          }
+          children.add(Positioned(
+            left: fx, top: rowY, width: sEndW, height: sTileH,
+            child: _safeImage(sp.end, fit: BoxFit.fill),
+          ));
+
+          prevRowTotal = 1 + fillCount + 1;
+        }
+      } // konec else (Medium+ pyramid rendering)
     }
 
     return children;

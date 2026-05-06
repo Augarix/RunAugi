@@ -156,11 +156,16 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     'assets/images/run/Run1.png',
     'assets/images/run/Run2.png',
     'assets/images/run/Run3.png',
+    'assets/images/run/Run4.png',
+    'assets/images/run/Run5.png',
+    'assets/images/run/Run6.png',
+    'assets/images/run/Run7.png',
+    'assets/images/run/Run8.png',
   ];
   static const String _jumpImg     = 'assets/images/run/Jump1.png';
   static const String _deathImg    = 'assets/images/run/Death.png';
   static const String _groundedImg = 'assets/images/run/Grounded.png'; // ⬅️ přidat do pubspec.yaml
-  static const String _gearIcon    = 'assets/images/placeholder.png';  // tlačítko vpravo nahoře
+  static const String _gearIcon    = 'assets/images/icon_settings.png';  // tlačítko vpravo nahoře
 
   // Dlaždice – sprite rozměry (px, nativní velikost assetů)
   // Poznámka: public aby byly dostupné z _RunnerPainter
@@ -1150,6 +1155,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     // ❄️ kompletní stop – čekáme na tap (po chvíli Death → Grounded)
     _longJumpTimer?.cancel();
     _longJumpTimer = null;
+    // Snap runnera vždy na base ground (ne na překážku) + vizuální offset
+    final baseGroundY = _screenH * groundYFrac;
+    runnerY = baseGroundY - runnerRadius + runnerRadius * 0.8;
     setState(() {
       paused = true;
       _deadFrozen = true;
@@ -1620,7 +1628,10 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
     // sprite – default run / intro / death / grounded
     String playerSprite = _runCycle[_runFrame];
-    if (_intro != IntroPhase.none) {
+    if (_awaitFirstTap) {
+      // Před prvním tapem zobraz Ready
+      playerSprite = _readyImg;
+    } else if (_intro != IntroPhase.none) {
       playerSprite = _intro == IntroPhase.ready ? _readyImg
           : _intro == IntroPhase.set   ? _setImg
           : _goImg;
@@ -1697,7 +1708,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
                 height: runnerRadius * 4 * runnerScale,
                 child: IgnorePointer(
                   ignoring: true,
-                  child: Image.asset(playerSprite, fit: BoxFit.contain),
+                  child: Image.asset(playerSprite, fit: BoxFit.contain, alignment: Alignment.bottomCenter),
                 ),
               ),
 
@@ -1707,7 +1718,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
                 right: 8,
                 child: GestureDetector(
                   onTap: _openIngame,
-                  child: Image.asset(_gearIcon, width: 32, height: 32, fit: BoxFit.contain),
+                  child: Image.asset(_gearIcon, width: 65, height: 65, fit: BoxFit.contain),
                 ),
               ),
 

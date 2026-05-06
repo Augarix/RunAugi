@@ -23,6 +23,8 @@ dev_dependencies:
   flutter_launcher_icons: ^0.13.1
   flutter_native_splash: ^2.4.1
 
+
+
 flutter:
   uses-material-design: true
 
@@ -57,6 +59,11 @@ flutter:
     - assets/images/run/Run1.png
     - assets/images/run/Run2.png
     - assets/images/run/Run3.png
+    - assets/images/run/Run4.png
+    - assets/images/run/Run5.png
+    - assets/images/run/Run6.png
+    - assets/images/run/Run7.png
+    - assets/images/run/Run8.png
     - assets/images/run/Jump1.png
     - assets/images/run/Death.png
     - assets/images/run/Grounded.png
@@ -78,6 +85,12 @@ flutter:
     - assets/images/easy/HL_end.png
     - assets/images/easy/HL_fill.png
     - assets/images/easy/HL_spike.png
+    - assets/images/hard/CT_1.png
+    - assets/images/hard/CT_2.png
+    - assets/images/hard/CT_3.png
+    - assets/images/icon_leaderboard.png
+    - assets/images/icon_settings.png
+    - assets/images/icon_achievements.png
 
   fonts:
     - family: Augarix
@@ -95,7 +108,11 @@ flutter_launcher_icons:
 flutter_native_splash:
   color: "#101317"
   image: assets/images/splash.png
+  android_gravity: fill
+  ios_content_mode: scaleAspectFill
+  fullscreen: true
   android_12:
     color: "#101317"
     image: assets/images/splash.png
-  fullscreen: true
+
+

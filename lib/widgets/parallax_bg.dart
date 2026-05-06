@@ -17,6 +17,7 @@ class ParallaxLayerConfig {
 
   /// Násobitel rychlosti posunu (1.0 = normální, 2.0 = dvojnásobná)
   final double speedMultiplier;
+  final double verticalOffset;
 
   const ParallaxLayerConfig({
     required this.asset,
@@ -30,6 +31,7 @@ class ParallaxLayerConfig {
     this.gaplessPlayback = true,
     this.topFraction,
     this.speedMultiplier = 1.0,
+    this.verticalOffset = 0.0,
   });
 
   const ParallaxLayerConfig.scroll({
@@ -42,6 +44,7 @@ class ParallaxLayerConfig {
     this.gaplessPlayback = true,
     this.topFraction,
     this.speedMultiplier = 1.0,
+    this.verticalOffset = 0.0,
   })  : mode = ParallaxLayerMode.scroll,
         amplitude = 0.0;
 
@@ -56,6 +59,7 @@ class ParallaxLayerConfig {
     this.gaplessPlayback = true,
     this.topFraction,
     this.speedMultiplier = 1.0,
+    this.verticalOffset = 0.0,
   }) : mode = ParallaxLayerMode.oscillate;
 }
 
@@ -67,6 +71,7 @@ class ParallaxBackground extends StatefulWidget {
   final Color? overlayColor;
   final double overlayOpacity;
   final bool playing;
+  final double backgroundVerticalOffset;
 
   const ParallaxBackground({
     super.key,
@@ -77,6 +82,7 @@ class ParallaxBackground extends StatefulWidget {
     this.overlayColor,
     this.overlayOpacity = 0.0,
     this.playing = true,
+    this.backgroundVerticalOffset = 0.0,
   });
 
   @override
@@ -140,12 +146,15 @@ class _ParallaxBackgroundState extends State<ParallaxBackground>
       children: [
         // Fallback černá → bílá podkladová barva pokud PNG má průhlednost
         const ColoredBox(color: Color(0xFF87CEEB)), // fallback sky blue
-        Image.asset(
-          widget.backgroundAsset,
-          fit: widget.backgroundFit,
-          alignment: widget.backgroundAlignment,
-          filterQuality: FilterQuality.none,
-          gaplessPlayback: true,
+        Transform.translate(
+          offset: Offset(0, widget.backgroundVerticalOffset),
+          child: Image.asset(
+            widget.backgroundAsset,
+            fit: widget.backgroundFit,
+            alignment: widget.backgroundAlignment,
+            filterQuality: FilterQuality.none,
+            gaplessPlayback: true,
+          ),
         ),
         for (int i = 0; i < widget.layers.length; i++)
           _AnimatedLayer(
@@ -180,6 +189,8 @@ class _AnimatedLayer extends StatelessWidget {
           gaplessPlayback: config.gaplessPlayback,
           topFraction: config.topFraction,
           speedMultiplier: config.speedMultiplier,
+          repeat: config.repeat,
+          verticalOffset: config.verticalOffset,
         );
       case ParallaxLayerMode.oscillate:
         return _OscillateLayer(
@@ -207,6 +218,8 @@ class _ScrollLayer extends StatelessWidget {
   final bool gaplessPlayback;
   final double? topFraction;
   final double speedMultiplier;
+  final ImageRepeat repeat;
+  final double verticalOffset;
 
   const _ScrollLayer({
     required this.asset,
@@ -217,6 +230,8 @@ class _ScrollLayer extends StatelessWidget {
     required this.gaplessPlayback,
     this.topFraction,
     this.speedMultiplier = 1.0,
+    this.repeat = ImageRepeat.noRepeat,
+    this.verticalOffset = 0.0,
   });
 
   @override
@@ -239,14 +254,14 @@ class _ScrollLayer extends StatelessWidget {
                 children: [
                   Positioned(
                     left: dx,
-                    top: top,
+                    top: top + verticalOffset,
                     width: w,
                     height: imgH,
                     child: _img(),
                   ),
                   Positioned(
                     left: dx + w,
-                    top: top,
+                    top: top + verticalOffset,
                     width: w,
                     height: imgH,
                     child: _img(),
@@ -262,8 +277,9 @@ class _ScrollLayer extends StatelessWidget {
 
   Widget _img() => Image.asset(
     asset,
-    fit: BoxFit.fill,
+    fit: fit,
     alignment: alignment,
+    repeat: repeat,
     gaplessPlayback: gaplessPlayback,
     filterQuality: filterQuality,
   );

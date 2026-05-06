@@ -10,11 +10,11 @@ class RunSelectScreen extends StatelessWidget {
   const RunSelectScreen({super.key});
 
   // --- Konfigurovatelné pozice a velikosti (v procentech) ---
-  static const double _easyX = 0.40;   // nad kopečky
-  static const double _easyY = 0.38;
+  static const double _easyX = 0.50;   // nad kopečky
+  static const double _easyY = 0.33;
 
-  static const double _mediumX = 0.80; // pod horami
-  static const double _mediumY = 0.50;
+  static const double _mediumX = 0.70; // pod horami
+  static const double _mediumY = 0.80;
 
   static const double _hardX = 0.17;   // pod městem
   static const double _hardY = 0.88;

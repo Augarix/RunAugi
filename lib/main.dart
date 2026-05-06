@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/painting.dart'; // ⬅️ pro image cache (PaintingBinding)
+import 'package:flutter/painting.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import 'texty.dart';
 import 'screens/main_menu.dart';
@@ -12,11 +13,11 @@ const bool SAFE_BOOT = false;
 
 void main() {
   runZonedGuarded(() async {
-    // ✅ ensureInitialized i runApp ve stejné zóně
-    WidgetsFlutterBinding.ensureInitialized();
+    final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+    // Zachovej splash dokud app není připravena
+    FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-    // 💾 zvětšit image cache – pomáhá s animovanými GIFy na emulátoru
-    PaintingBinding.instance.imageCache.maximumSizeBytes = 256 << 20; // 256 MB
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 256 << 20;
     PaintingBinding.instance.imageCache.maximumSize = 500;
 
     await SystemChrome.setPreferredOrientations([
@@ -32,15 +33,17 @@ void main() {
       systemNavigationBarIconBrightness: Brightness.light,
     ));
 
-    // Nastavení
     await SettingsService.I.load();
 
-    // Hudba – povolit/zakázat audio dle nastavení a případně spustit menu music
     await MusicService.I.setEnabled(SettingsService.I.musicOn);
-    await Future.delayed(const Duration(milliseconds: 200)); // krátké „warm-up“
+    await Future.delayed(const Duration(milliseconds: 200));
     if (SettingsService.I.musicOn) {
       await MusicService.I.ensureMenuMusic();
     }
+
+    // Zobraz splash minimálně 3 sekundy
+    await Future.delayed(const Duration(seconds: 3));
+    FlutterNativeSplash.remove();
 
     runApp(const RootApp());
   }, (error, stack) {
@@ -72,7 +75,6 @@ class AugiRunApp extends StatelessWidget {
     return AnimatedBuilder(
       animation: SettingsService.I,
       builder: (_, __) {
-        // aby T.* používal aktuální jazyk
         T.lang = SettingsService.I.lang;
         return const MaterialApp(
           debugShowCheckedModeBanner: false,

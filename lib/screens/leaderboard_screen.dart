@@ -1,10 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:math';
 import '../texty.dart';
 import '../models/leaderboard_model.dart';
 import '../models/player_prefs.dart';
 import '../services/settings_service.dart';
 import '../models/lang.dart';
+import '../widgets/parallax_bg.dart';
+
+const _parallaxSets = [
+  (
+  bg: 'assets/images/easy/HL_bg1.png',
+  mid: 'assets/images/easy/HL_bg2.png',
+  front: 'assets/images/easy/HL_bg3.png',
+  frontTopFraction: 0.35,
+  midVerticalOffset: 0.0,
+  frontRepeatX: false,
+  bgAlignmentY: 0.9,
+  ),
+  (
+  bg: 'assets/images/MT_bg1.png',
+  mid: 'assets/images/MT_bg2.png',
+  front: 'assets/images/MT_bg3.png',
+  frontTopFraction: 0.35,
+  midVerticalOffset: 0.0,
+  frontRepeatX: false,
+  bgAlignmentY: 0.0,
+  ),
+  (
+  bg: 'assets/images/hard/CT_1.png',
+  mid: 'assets/images/hard/CT_2.png',
+  front: 'assets/images/hard/CT_3.png',
+  frontTopFraction: 0.87,
+  midVerticalOffset: 80.0,
+  frontRepeatX: true,
+  bgAlignmentY: 0.0,
+  ),
+];
 
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
@@ -21,9 +53,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   String? _prevName;
 
   late final AnimationController _pulseCtrl;
-  late final Animation<double> _pulse; // 0..1
+  late final Animation<double> _pulse;
 
-  static const double _rowExtent = 57.0; // výška řádku (tile + divider)
+  static const double _rowExtent = 57.0;
+
+  late final _set = _parallaxSets[Random().nextInt(_parallaxSets.length)];
 
   @override
   void initState() {
@@ -36,10 +70,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
       statusBarIconBrightness: Brightness.light,
       systemNavigationBarIconBrightness: Brightness.light,
     ));
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      precacheImage(const AssetImage('assets/images/main_background.gif'), context);
-    });
 
     _settings = SettingsService.I;
     _prevName = _settings.username;
@@ -97,10 +127,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     _scrolledToPlayer = true;
   }
 
-  /// Formátuje vzdálenost entry dle jazyka:
-  /// CZ: m (< 1 km) nebo X.XXX km (≥ 1 km)
-  /// EN: ft (< 1 mi) nebo X.XXX mi (≥ 1 mi)
-  // e.km obsahuje hodnotu v metrech = krocích (1 krok ≈ 1 metr)
   String _formatEntryDistance(LBEntry e) {
     final meters = e.km;
     final isCz = _settings.lang == Lang.cz;
@@ -123,7 +149,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     return WillPopScope(
       onWillPop: () async => false,
       child: Scaffold(
-        backgroundColor: Colors.black, // pod GIFem
+        backgroundColor: Colors.black,
         extendBodyBehindAppBar: true,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
@@ -147,26 +173,35 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
         ),
         body: Stack(
           children: [
-            // 🔁 stejné full-bleed pozadí jako v MainMenu (fit: fill)
+            // Parallax pozadí – stejné jako main menu
             Positioned.fill(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: SizedBox.expand(
-                      child: Image.asset(
-                        'assets/images/main_background.gif',
-                        fit: BoxFit.fill,
-                      ),
+              child: ParallaxBackground(
+                backgroundAsset: _set.bg,
+                backgroundAlignment: Alignment(0, _set.bgAlignmentY),
+                playing: true,
+                layers: [
+                  ParallaxLayerConfig.scroll(
+                    asset: _set.mid,
+                    duration: const Duration(seconds: 25),
+                    verticalOffset: _set.midVerticalOffset,
+                  ),
+                  if (_set.front.isNotEmpty)
+                    ParallaxLayerConfig.scroll(
+                      asset: _set.front,
+                      duration: const Duration(seconds: 10),
+                      topFraction: _set.frontTopFraction,
+                      fit: _set.frontRepeatX ? BoxFit.fitHeight : BoxFit.fill,
+                      alignment: Alignment.bottomLeft,
+                      repeat: _set.frontRepeatX ? ImageRepeat.repeatX : ImageRepeat.noRepeat,
                     ),
-                  ),
-                  Positioned.fill(
-                    child: Container(color: Colors.black.withOpacity(0.35)),
-                  ),
                 ],
               ),
             ),
+            // Tmavý overlay – 0.55 pro lepší čitelnost
+            Positioned.fill(
+              child: Container(color: Colors.black.withOpacity(0.55)),
+            ),
 
-            // obsah
             SafeArea(
               child: LayoutBuilder(
                 builder: (context, constraints) {

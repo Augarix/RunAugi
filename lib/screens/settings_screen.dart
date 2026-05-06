@@ -1,10 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:math';
 
 import '../texty.dart';
 import '../models/lang.dart';
 import '../services/settings_service.dart' show SettingsService, MusicStyle;
 import '../services/music_service.dart';
+import '../widgets/parallax_bg.dart';
+
+
+// Sdílená konfigurace parallax sad – stejná jako main_menu.dart
+const _parallaxSets = [
+  (
+  bg: 'assets/images/easy/HL_bg1.png',
+  mid: 'assets/images/easy/HL_bg2.png',
+  front: 'assets/images/easy/HL_bg3.png',
+  frontTopFraction: 0.35,
+  midVerticalOffset: 0.0,
+  frontRepeatX: false,
+  bgAlignmentY: 0.9,
+  ),
+  (
+  bg: 'assets/images/MT_bg1.png',
+  mid: 'assets/images/MT_bg2.png',
+  front: 'assets/images/MT_bg3.png',
+  frontTopFraction: 0.35,
+  midVerticalOffset: 0.0,
+  frontRepeatX: false,
+  bgAlignmentY: 0.0,
+  ),
+  (
+  bg: 'assets/images/hard/CT_1.png',
+  mid: 'assets/images/hard/CT_2.png',
+  front: 'assets/images/hard/CT_3.png',
+  frontTopFraction: 0.87,
+  midVerticalOffset: 80.0,
+  frontRepeatX: true,
+  bgAlignmentY: 0.0,
+  ),
+];
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -16,19 +50,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final s = SettingsService.I;
   final nameCtrl = TextEditingController();
 
-  // Label ~35 % řádku v intervalu 160–260 px
   static const double _labelColWidthMax = 260.0;
   static const double _labelColWidthMin = 160.0;
-
-  // Jednotná minimální výška buněk
   static const double _rowMinHeight = 56.0;
-
-  // Kompaktnější mřížka
   static const double _twoColsMinWidth = 660.0;
-  static const double _cellGap = 6.0; // mezi buňkami
+  static const double _cellGap = 6.0;
 
   final List<String> _characterIds = const ['augi'];
   int _charIndex = 0;
+
+  late final _set = _parallaxSets[Random().nextInt(_parallaxSets.length)];
 
   @override
   void initState() {
@@ -41,9 +72,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       systemNavigationBarIconBrightness: Brightness.light,
     ));
     nameCtrl.text = s.username;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      precacheImage(const AssetImage('assets/images/main_background.gif'), context);
-    });
   }
 
   @override
@@ -97,13 +125,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       body: Stack(
         children: [
+          // Parallax pozadí – stejné jako main menu
           Positioned.fill(
-            child: Stack(
-              children: [
-                Positioned.fill(child: Image.asset('assets/images/main_background.gif', fit: BoxFit.fill)),
-                Positioned.fill(child: Container(color: Colors.black.withOpacity(0.35))),
+            child: ParallaxBackground(
+              backgroundAsset: _set.bg,
+              backgroundAlignment: Alignment(0, _set.bgAlignmentY),
+              playing: true,
+              layers: [
+                ParallaxLayerConfig.scroll(
+                  asset: _set.mid,
+                  duration: const Duration(seconds: 25),
+                  verticalOffset: _set.midVerticalOffset,
+                ),
+                if (_set.front.isNotEmpty)
+                  ParallaxLayerConfig.scroll(
+                    asset: _set.front,
+                    duration: const Duration(seconds: 10),
+                    topFraction: _set.frontTopFraction,
+                    fit: _set.frontRepeatX ? BoxFit.fitHeight : BoxFit.fill,
+                    alignment: Alignment.bottomLeft,
+                    repeat: _set.frontRepeatX ? ImageRepeat.repeatX : ImageRepeat.noRepeat,
+                  ),
               ],
             ),
+          ),
+          // Tmavý overlay – 0.55 pro lepší čitelnost obsahu
+          Positioned.fill(
+            child: Container(color: Colors.black.withOpacity(0.55)),
           ),
           SafeArea(
             child: Align(
@@ -152,9 +200,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ————— UI helpers —————
-
-  /// Řádek s adaptivní šířkou levého labelu (≈35 %, clamp 160–260 px) a kompaktními mezerami.
   Widget _row(String label, Widget right) {
     return LayoutBuilder(
       builder: (context, c) {
@@ -162,8 +207,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final labelW = (maxW * 0.35).clamp(_labelColWidthMin, _labelColWidthMax);
 
         return Container(
-          margin: const EdgeInsets.symmetric(vertical: 3),                 // menší okraj
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),// menší vnitřní okraj
+          margin: const EdgeInsets.symmetric(vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           constraints: const BoxConstraints(minHeight: _rowMinHeight),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.06),
@@ -179,7 +224,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: const TextStyle(color: Colors.white70, fontFamily: 'Augarix'),
                     overflow: TextOverflow.ellipsis),
               ),
-              const SizedBox(width: 12), // menší mezera mezi label/ovládáním
+              const SizedBox(width: 12),
               Expanded(child: Align(alignment: Alignment.centerRight, child: right)),
             ],
           ),
@@ -188,7 +233,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Username field – ~80 % pravé části, min 480 px, pokud je prostor.
   Widget _usernameField() {
     return LayoutBuilder(
       builder: (context, c) {
@@ -222,13 +266,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Kompaktní Character picker, aby výška držela 56 px.
   Widget _characterPickerCompact() {
     String assetFor(String id) => 'assets/images/augi.png';
     final id = _characterIds[_charIndex];
 
     const btnSize = 40.0;
-    const preview = 48.0; // vejde se do řádku 56
+    const preview = 48.0;
 
     Widget arrow(IconData icon, VoidCallback onTap) {
       return InkResponse(
@@ -285,7 +328,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-// ——— Velký (kompaktní) Segmented přepínač hudebního stylu ———
 class _MusicStyleSwitch extends StatelessWidget {
   final MusicStyle value;
   final ValueChanged<MusicStyle> onChanged;
@@ -298,7 +340,7 @@ class _MusicStyleSwitch extends StatelessWidget {
         final total = c.maxWidth.isFinite ? c.maxWidth : 0.0;
         final computed = total > 0 ? (total - 12) / 2 : 160.0;
         final segW = computed < 160 ? 160.0 : computed;
-        const segH = 44.0; // kompaktnější, aby seděl do řádku 56
+        const segH = 44.0;
 
         return SizedBox(
           height: segH,
@@ -349,7 +391,6 @@ class _MusicStyleSwitch extends StatelessWidget {
   }
 }
 
-// ——— Stejný kompaktní přepínač pro jazyk (CZ/EN) ———
 class _LangSwitch extends StatelessWidget {
   final Lang value;
   final ValueChanged<Lang> onChanged;

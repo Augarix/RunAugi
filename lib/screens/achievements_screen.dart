@@ -1,11 +1,43 @@
 // lib/screens/achievements_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:math';
 
 import '../texty.dart';
-import '../models/lang.dart';             // pro T.lang == Lang.cz (používá se nepřímo)
+import '../models/lang.dart';
 import '../achievements/ach_logic.dart';
 import '../services/settings_service.dart';
+import '../widgets/parallax_bg.dart';
+
+const _parallaxSets = [
+  (
+  bg: 'assets/images/easy/HL_bg1.png',
+  mid: 'assets/images/easy/HL_bg2.png',
+  front: 'assets/images/easy/HL_bg3.png',
+  frontTopFraction: 0.35,
+  midVerticalOffset: 0.0,
+  frontRepeatX: false,
+  bgAlignmentY: 0.9,
+  ),
+  (
+  bg: 'assets/images/MT_bg1.png',
+  mid: 'assets/images/MT_bg2.png',
+  front: 'assets/images/MT_bg3.png',
+  frontTopFraction: 0.35,
+  midVerticalOffset: 0.0,
+  frontRepeatX: false,
+  bgAlignmentY: 0.0,
+  ),
+  (
+  bg: 'assets/images/hard/CT_1.png',
+  mid: 'assets/images/hard/CT_2.png',
+  front: 'assets/images/hard/CT_3.png',
+  frontTopFraction: 0.87,
+  midVerticalOffset: 80.0,
+  frontRepeatX: true,
+  bgAlignmentY: 0.0,
+  ),
+];
 
 class AchievementsScreen extends StatefulWidget {
   const AchievementsScreen({super.key});
@@ -15,11 +47,12 @@ class AchievementsScreen extends StatefulWidget {
 }
 
 class _AchievementsScreenState extends State<AchievementsScreen> {
+  late final _set = _parallaxSets[Random().nextInt(_parallaxSets.length)];
+
   @override
   void initState() {
     super.initState();
 
-    // Edge-to-edge a světlé ikony
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -28,17 +61,11 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       systemNavigationBarIconBrightness: Brightness.light,
     ));
 
-    // Předehřát pozadí (menší bliknutí)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      precacheImage(const AssetImage('assets/images/main_background.gif'), context);
-    });
-
-    // Reakce na změnu jazyka / nastavení
     SettingsService.I.addListener(_onSettingsChanged);
   }
 
   void _onSettingsChanged() {
-    if (mounted) setState(() {}); // překreslí AppBar title & texty
+    if (mounted) setState(() {});
   }
 
   @override
@@ -49,13 +76,11 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // pro jistotu sjednotíme T.lang i při přímém vstupu na obrazovku
     T.lang = SettingsService.I.lang;
-
     final ids = AchLogic.I.visibleToday();
 
     return Scaffold(
-      backgroundColor: Colors.black,            // stejné jako v MainMenu (pod GIFem)
+      backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -79,27 +104,35 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       ),
       body: Stack(
         children: [
-          // ✅ ÚPLNĚ STEJNÝ BACKGROUND BLOK JAKO V MAIN MENU
+          // Parallax pozadí – stejné jako main menu
           Positioned.fill(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: SizedBox.expand(
-                    child: Image.asset(
-                      'assets/images/main_background.gif',
-                      fit: BoxFit.fill, // vyplní celý displej (může mírně deformovat)
-                      // Pokud chceš bez deformace, přepni na: BoxFit.cover,
-                    ),
+            child: ParallaxBackground(
+              backgroundAsset: _set.bg,
+              backgroundAlignment: Alignment(0, _set.bgAlignmentY),
+              playing: true,
+              layers: [
+                ParallaxLayerConfig.scroll(
+                  asset: _set.mid,
+                  duration: const Duration(seconds: 25),
+                  verticalOffset: _set.midVerticalOffset,
+                ),
+                if (_set.front.isNotEmpty)
+                  ParallaxLayerConfig.scroll(
+                    asset: _set.front,
+                    duration: const Duration(seconds: 10),
+                    topFraction: _set.frontTopFraction,
+                    fit: _set.frontRepeatX ? BoxFit.fitHeight : BoxFit.fill,
+                    alignment: Alignment.bottomLeft,
+                    repeat: _set.frontRepeatX ? ImageRepeat.repeatX : ImageRepeat.noRepeat,
                   ),
-                ),
-                Positioned.fill(
-                  child: Container(color: Colors.black.withOpacity(0.35)),
-                ),
               ],
             ),
           ),
+          // Tmavý overlay – 0.55 pro lepší čitelnost
+          Positioned.fill(
+            child: Container(color: Colors.black.withOpacity(0.55)),
+          ),
 
-          // Obsah
           SafeArea(
             child: Center(
               child: ConstrainedBox(
@@ -107,7 +140,6 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Ovládací tlačítka
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -132,7 +164,6 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Seznam achievementů
                     SizedBox(
                       height: 420,
                       child: ListView.separated(

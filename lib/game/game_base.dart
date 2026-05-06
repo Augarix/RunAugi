@@ -118,6 +118,10 @@ abstract class GameBase extends StatefulWidget {
   /// Klíč pro nejlepší vzdálenost v tomto levelu.
   /// v3 = vzdalenost primo v metrech jako double
   String get bestXPrefsKey => 'best_worldx_v3_$modeName';
+  /// Klíč pro uložený checkpoint (worldX pozice)
+  String get checkpointPrefsKey => 'last_checkpoint_$modeName';
+  /// Klíč pro uložený elapsed čas v ms (pro progress bar)
+  String get elapsedMsPrefsKey => 'last_elapsed_ms_$modeName';
 }
 
 class GameBaseState<TW extends GameBase> extends State<TW>
@@ -241,6 +245,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
   DateTime? _lastDeathAt;
   DateTime? _lastGroundedAt; // ⏱ coyote time – čas posledního dotyku země
+  DateTime? _jumpBufferAt;   // ⏱ jump buffer – čas posledního tapu (i když nebyl grounded)
+  int _savedElapsedMs = 0;   // ⏱ uložený elapsed čas při restore checkpointu
+  bool _pendingObstacleGen = false; // true = vygeneruj překážky hned po mountu
 
   // stayDead runtime
   bool _deadFrozen = false;
@@ -312,8 +319,18 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       await precacheImage(p, ctx);
     }
 
-    // Maskování načítání – celkem cca 7 s (5 s + 2 s navíc)
-    await Future.delayed(const Duration(seconds: 7));
+    // Vygeneruj celý level během loading overlaye (za černou obrazovkou)
+    // Tím jsou všechny překážky připraveny ihned po načtení
+    if (mounted) {
+      final totalLength = widget.length.inMilliseconds / 1000.0 * speed;
+      _generateFullLevel(totalLength + 4000);
+    }
+
+    // Maskování načítání
+    final loadDelay = _isRestoringLevel
+        ? const Duration(seconds: 2)
+        : const Duration(seconds: 7);
+    await Future.delayed(loadDelay);
     if (mounted) setState(() => _loading = false);
   }
 
@@ -378,8 +395,14 @@ class GameBaseState<TW extends GameBase> extends State<TW>
           setState(() {
             _intro = IntroPhase.none;
             _gameRunning = true;
-            startTime = DateTime.now();
-            lastTick = Duration.zero;
+            // Pokud obnovujeme checkpoint, posuň startTime dozadu
+            startTime = _savedElapsedMs > 0
+                ? DateTime.now().subtract(Duration(milliseconds: _savedElapsedMs))
+                : DateTime.now();
+            lastTick = _savedElapsedMs > 0
+                ? Duration(milliseconds: _savedElapsedMs)
+                : Duration.zero;
+            _savedElapsedMs = 0; // spotřebováno
           });
           bgPlayingNotifier.value = true;
           _syncBgAnim();
@@ -431,6 +454,10 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     _genLastWasSpike    = false;
     _genLastWasPlatform = true;
     _runMeters          = 0;
+    _jumpBufferAt       = null;
+    _lastGroundedAt     = null;
+    _savedElapsedMs     = 0;
+    _pendingObstacleGen = false;
     bgPlayingNotifier.value = false;
   }
 
@@ -455,9 +482,51 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final saved = prefs.getInt(widget.seedPrefsKey);
     _bestMeters = prefs.getDouble(widget.bestXPrefsKey) ?? 0;
     if (saved != null) {
-      // Existující seed – obnovujeme level
+      // Existující seed – obnovujeme level od posledního checkpointu
       _isRestoringLevel = true;
+      final savedCheckpoint = prefs.getDouble(widget.checkpointPrefsKey) ?? 0;
+      final savedCheckpointCount = prefs.getInt('last_checkpoint_count_${widget.modeName}') ?? 0;
       _applySeed(saved);
+      // Obnov checkpoint pozici po applySeed (který resetuje stav)
+      if (savedCheckpoint > 0) {
+        final savedElapsedMs = prefs.getInt(widget.elapsedMsPrefsKey) ?? 0;
+        lastCheckpointWorldX = savedCheckpoint;
+        checkpoints = savedCheckpointCount;
+        nextCheckpointIn = widget.checkpointFreq;
+        _savedElapsedMs = savedElapsedMs;
+        // Vygeneruj celý level od 0 do checkpointu + buffer
+        worldX = 0; // generuj od začátku
+        _generateFullLevel(savedCheckpoint + 4000);
+        // Po vygenerování posuň runnera na checkpoint (s reaction gap ochranou)
+        worldX = _safeSpawnX(savedCheckpoint);
+        _runMeters = worldX / (baseSpeedPxPerSec * (widget.speedPercent / 100.0)) * speedMps;
+        // Nastav Y pozici stejně jako při respawnu – runner stojí na ground nebo walkable box
+        _stickToGround();
+        // Pojistka: pokud je runner v kolizi, posuň dál dozadu
+        int safetyIter = 0;
+        while (_collides() && safetyIter < 20) {
+          worldX -= speed * 0.1;
+          _stickToGround();
+          safetyIter++;
+        }
+        // Překresli widget s nově vygenerovanými překážkami
+        if (mounted) setState(() {});
+        // 🔍 DEBUG LOG
+        debugPrint('=== RESTORE DEBUG ===');
+        debugPrint('savedCheckpoint: $savedCheckpoint');
+        debugPrint('worldX after restore: $worldX');
+        debugPrint('obstacles.length: ${obstacles.length}');
+        if (obstacles.isNotEmpty) {
+          debugPrint('first obstacle x: ${obstacles.first.x}');
+          debugPrint('last obstacle x: ${obstacles.last.x}');
+          // Překážky v visible oblasti (worldX-200 až worldX+1500)
+          final visible = obstacles.where((o) => o.x >= worldX - 200 && o.x <= worldX + 1500).toList();
+          debugPrint('visible obstacles near checkpoint: ${visible.length}');
+          for (final o in visible.take(5)) {
+            debugPrint('  ob x:${o.x} w:${o.width} type:${o.type}');
+          }
+        }
+      }
     } else {
       // Nový seed – generujeme level
       _isRestoringLevel = false;
@@ -474,6 +543,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(widget.seedPrefsKey);
     await prefs.remove(widget.bestXPrefsKey);
+    await prefs.remove(widget.checkpointPrefsKey);
+    await prefs.remove('last_checkpoint_count_${widget.modeName}');
+    await prefs.remove(widget.elapsedMsPrefsKey);
     _bestMeters = 0;
     _isRestoringLevel = false; // vždy generujeme nový
     await _loadOrGenerateSeed();
@@ -486,6 +558,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final s = DateTime.now().microsecondsSinceEpoch & 0x7FFFFFFF;
     SharedPreferences.getInstance().then((prefs) {
       prefs.setInt(widget.seedPrefsKey, s);
+      prefs.remove(widget.checkpointPrefsKey);
+      prefs.remove('last_checkpoint_count_${widget.modeName}');
+      prefs.remove(widget.elapsedMsPrefsKey);
     });
     _applySeed(s);
   }
@@ -500,12 +575,34 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   // ———————————————————————————————————————————————————————————
   // Generátor překážek: BOX & SPIKE s dlážděním start/mid/end
   // ———————————————————————————————————————————————————————————
-  void _ensureGeneratedAhead(double targetX) {
-    double genToX = obstacles.isEmpty ? 0 : obstacles.last.x + obstacles.last.width;
-    if (genToX < targetX) genToX = targetX;
+  // Vygeneruje celý level od začátku do targetX bez limitu překážek per volání
+  void _generateFullLevel(double targetX) {
+    debugPrint('=== _generateFullLevel START, targetX: $targetX, worldX: $worldX ===');
+    // Reset tracking fields aby generátor začal od začátku
+    _genLastLayers      = 1;
+    _genLastWasBox      = true;
+    _genLastWasSpike    = false;
+    _genLastWasPlatform = true;
+    obstacles.clear();
+    // Dočasně odstraň limit překážek
+    _fullGenMode = true;
+    _ensureGeneratedAhead(targetX);
+    _fullGenMode = false;
+    debugPrint('=== _generateFullLevel DONE, obstacles: ${obstacles.length}, last x: ${obstacles.isEmpty ? "none" : obstacles.last.x} ===');
+  }
 
-    final double endX = worldX + 4000;
-    double cursor = genToX;
+  bool _fullGenMode = false; // true = bez limitu 8 překážek
+
+  void _ensureGeneratedAhead(double targetX) {
+    // cursor = kde generátor naposledy skončil (konec poslední překážky)
+    // NESMÍ být nastaven na targetX – to by přeskočilo celé generování!
+    double cursor = obstacles.isEmpty ? 0 : obstacles.last.x + obstacles.last.width;
+
+    // V _fullGenMode generuj až do targetX, jinak jen 4000px dopředu od worldX
+    final double endX = _fullGenMode ? targetX : max(worldX + 4000, targetX);
+    if (_fullGenMode) {
+      debugPrint('_ensureGeneratedAhead: targetX=$targetX endX=$endX cursor=$cursor worldX=$worldX');
+    }
 
     final introMs = widget.minIntro.inMilliseconds;
     final totalMs = widget.length.inMilliseconds;
@@ -575,7 +672,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     }
 
     int _genCount = 0;
-    while (cursor < endX && _genCount < 8) {
+    while (cursor < endX && (_fullGenMode || _genCount < 8)) {
 
       // ── Krok 1: Typ překážky ───────────────────────────────────
       // EASY: jen SPIKE a TYP A (žádné B, žádné C)
@@ -830,6 +927,13 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       checkpoints++;
       lastCheckpointWorldX = worldX;
       nextCheckpointIn = widget.checkpointFreq;
+      // Persist checkpoint – ulož elapsed čas V TOMTO MOMENTĚ (= čas checkpointu)
+      final elapsedAtCheckpoint = DateTime.now().difference(startTime).inMilliseconds;
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setDouble(widget.checkpointPrefsKey, lastCheckpointWorldX);
+        prefs.setInt('last_checkpoint_count_${widget.modeName}', checkpoints);
+        prefs.setInt(widget.elapsedMsPrefsKey, elapsedAtCheckpoint); // elapsed v místě checkpointu
+      });
       _onBanner();
     }
 
@@ -838,6 +942,18 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     vy += gNow * dtSec;
     runnerY += vy * dtSec;
     _applyGroundCeilClamp();
+
+    // Jump buffer: pokud byl tap uložen a runner je nyní grounded → skoč
+    if (_jumpBufferAt != null && grounded) {
+      final bufferMs = widget.modeName == 'EASY' ? 180 : 120;
+      final sinceBuffer = DateTime.now().difference(_jumpBufferAt!).inMilliseconds;
+      if (sinceBuffer <= bufferMs) {
+        vy = gravityFlipped ? jumpVelocity.abs() : jumpVelocity;
+        grounded = false;
+        _lastGroundedAt = null;
+      }
+      _jumpBufferAt = null; // buffer vždy spotřebuj
+    }
 
     // Spike check – runner přistál shora na spike
     if (_touchingSpike()) {
@@ -1216,13 +1332,53 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     });
   }
 
+  /// Vrátí worldX posunuté dozadu tak aby byl reaction gap garantován.
+  /// Ignoruje walkable BOX překážky – runner na nich může stát.
+  /// Kontroluje pouze SPIKE a smrtící BOX (typ A, fromFloor=true, !walkable).
+  double _safeSpawnX(double spawnX) {
+    final minGap = widget.reactionTimeSec * speed * 2.0;
+    for (int i = 0; i < 50; i++) {
+      final runnerFront = spawnX + 40;
+      bool safe = true;
+      for (final ob in obstacles) {
+        // Přeskoč překážky za runnerem
+        if (ob.x + ob.width < runnerFront) continue;
+        // Překážka dost daleko – OK
+        if (ob.x > runnerFront + minGap) break;
+
+        // Walkable BOX (platforma) – runner na ní může stát, není nebezpečná
+        // Poznáme ji: type == box && šířka > start+end (má mid část)
+        final isWalkableBox = ob.type == ObstacleType.box &&
+            ob.groundOffset == 0 &&
+            ob.width > (_tileStartW + _tileEndW) * tileScale;
+        if (isWalkableBox) continue;
+
+        // Smrtící překážka příliš blízko → posuň spawn dozadu
+        spawnX = ob.x - minGap - 40;
+        safe = false;
+        break;
+      }
+      if (safe) break;
+    }
+    return spawnX;
+  }
+
   void _respawnToCheckpoint() {
     _deathStageTimer?.cancel();
-    worldX     = lastCheckpointWorldX;
+    worldX = _safeSpawnX(lastCheckpointWorldX);
     // _runMeters se neresetuje – měří celkovou vzdálenost od startu levelu
     startTime = DateTime.now().subtract(widget.checkpointFreq * checkpoints);
     nextCheckpointIn = widget.checkpointFreq;
+    // Nastav Y pozici až po nastavení worldX aby _effectiveGroundY
+    // správně zohlednil překážky na aktuální X pozici
     _stickToGround();
+    // Pojistka: pokud je runner stále v kolizi, posuň ho dál dozadu
+    int safetyIter = 0;
+    while (_collides() && safetyIter < 20) {
+      worldX -= speed * 0.1; // posuň o 100ms dozadu
+      _stickToGround();
+      safetyIter++;
+    }
     bgPlayingNotifier.value = true; // rovnou bez GO intra
     setState(() {
       _deadFrozen = false;
@@ -1343,13 +1499,22 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
     if (!_gameRunning || _intro != IntroPhase.none) return;
 
-    // Skok: okamžitá reakce bez čekání na tick.
-    // Zkontroluj grounded přímo – žádné coyote time, žádné buffery.
-    if (grounded) {
+    // Jump buffer: zapamatuj tap i když runner není grounded
+    _jumpBufferAt = DateTime.now();
+
+    // Coyote time: dovol skok krátce po opuštění překážky
+    final coyoteMs = widget.modeName == 'EASY' ? 120 : 80;
+    final sinceGrounded = _lastGroundedAt == null
+        ? 9999
+        : DateTime.now().difference(_lastGroundedAt!).inMilliseconds;
+    final canCoyote = !grounded && sinceGrounded <= coyoteMs;
+
+    if (grounded || canCoyote) {
       setState(() {
         vy = gravityFlipped ? jumpVelocity.abs() : jumpVelocity;
         grounded = false;
         _lastGroundedAt = null;
+        _jumpBufferAt = null; // buffer spotřebován
       });
     }
   }
@@ -1454,6 +1619,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
             for (final mode in ['EASY', 'MEDIUM', 'HARD', 'ENDLESS']) {
               await prefs.remove('level_seed_$mode');
               await prefs.remove('best_worldx_v3_$mode');
+              await prefs.remove('last_checkpoint_$mode');
+              await prefs.remove('last_checkpoint_count_$mode');
+              await prefs.remove('last_elapsed_ms_$mode');
             }
             if (mounted) {
               MusicService.I.stopGame().then((_) => MusicService.I.ensureMenuMusic());
@@ -1566,11 +1734,16 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       progress = (checkpoints % 10) / 10.0; // pulzuje každých 10 CP
       label = '${checkpoints} CP';
     } else {
-      // Při smrti (_deadFrozen) zachovej progress na hodnotě z posledního ticku
-      // Po respawnu (_respawnToCheckpoint) se startTime přepočítá dle checkpointu
-      final elapsedMs = _gameRunning
-          ? DateTime.now().difference(startTime).inMilliseconds
-          : lastTick.inMilliseconds; // zmrazený čas = poslední tick před smrtí
+      // Progress = elapsed / total
+      // _savedElapsedMs > 0 = restore z checkpointu, drž tuto hodnotu dokud hra nezačne
+      final int elapsedMs;
+      if (_savedElapsedMs > 0) {
+        elapsedMs = _savedElapsedMs;
+      } else if (_gameRunning) {
+        elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
+      } else {
+        elapsedMs = lastTick.inMilliseconds.clamp(0, widget.length.inMilliseconds);
+      }
       final total = widget.length.inMilliseconds;
       progress = (elapsedMs / total).clamp(0.0, 1.0);
       final pct = (progress * 100).round();
@@ -1700,7 +1873,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
               // Překážky (dlaždicované obrázky)
               ...obstacleWidgets,
 
-              // Postavička – škálovaná přes runnerScale
+              // Postavička – pozice dle runnerY (fyzikální stav)
               Positioned(
                 left: runnerScreenX - (runnerRadius * 2 * runnerScale),
                 top:  runnerY       - (runnerRadius * 2 * runnerScale),
@@ -1730,26 +1903,62 @@ class GameBaseState<TW extends GameBase> extends State<TW>
                 child: _buildProgressBar(size),
               ),
 
-              // ── Skóre – levý horní roh ─────────────────────────
+              // ── Skóre + Menu tlačítko – levý horní roh ──────────
               Positioned(
                 top: MediaQuery.of(context).padding.top + 8,
                 left: 12,
-                child: Transform.scale(
-                  scale: _scoreDisplayScale,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    _formatSteps(_totalMeters),
-                    style: TextStyle(
-                      fontFamily: 'Augarix',
-                      fontSize: size.height * 0.045, // 4.5% výšky displeje
-                      color: const Color(0xFF555555), // tmavě šedá
-                      shadows: const [Shadow(
-                        color: Color(0x88000000),
-                        offset: Offset(1, 1),
-                        blurRadius: 3,
-                      )],
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Transform.scale(
+                      scale: _scoreDisplayScale,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _formatSteps(_totalMeters),
+                        style: TextStyle(
+                          fontFamily: 'Augarix',
+                          fontSize: size.height * 0.045,
+                          color: const Color(0xFF555555),
+                          shadows: const [Shadow(
+                            color: Color(0x88000000),
+                            offset: Offset(1, 1),
+                            blurRadius: 3,
+                          )],
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 4),
+                    GestureDetector(
+                      onTap: () {
+                        // Ulož checkpoint a vrať se do menu
+                        // Checkpoint a elapsed byly uloženy při průchodu checkpointem
+                        // Menu tlačítko jen uloží worldX pro jistotu, elapsed NEPŘEPISUJE
+                        SharedPreferences.getInstance().then((prefs) {
+                          prefs.setDouble(widget.checkpointPrefsKey, lastCheckpointWorldX);
+                          prefs.setInt('last_checkpoint_count_${widget.modeName}', checkpoints);
+                        });
+                        MusicService.I.stopGame().then((_) => MusicService.I.ensureMenuMusic());
+                        Navigator.of(context).pop();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.30),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white.withOpacity(0.30)),
+                        ),
+                        child: Text(
+                          T.backToMenu(),
+                          style: const TextStyle(
+                            fontFamily: 'Augarix',
+                            fontSize: 12,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
@@ -1829,6 +2038,15 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   List<Widget> _buildVisibleObstacleTiles(Size size, double runnerScreenX) {
     final groundY = size.height * groundYFrac;
     final List<Widget> children = [];
+    // 🔍 DEBUG – loguj jen jednou za 60 framů
+    if (obstacles.isNotEmpty && (_runFrame == 0)) {
+      final visible = obstacles.where((o) {
+        final dx = o.x - worldX;
+        final sx = runnerScreenX + dx;
+        return sx > -256 && sx < size.width + 256;
+      }).length;
+      debugPrint('BUILD TILES: worldX=$worldX obstacles=${obstacles.length} visible=$visible screenW=${size.width}');
+    }
 
     // Škálované rozměry dlaždic (box)
     final sStartW = _tileStartW * effectiveTileScale;

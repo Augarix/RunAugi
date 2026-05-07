@@ -4,22 +4,21 @@ import '../texty.dart';
 import '../game/easy.dart';
 import '../game/medium.dart';
 import '../game/hard.dart';
-import '../game/endless.dart';
+import '../game/endless_run.dart';
 
 class RunSelectScreen extends StatelessWidget {
   const RunSelectScreen({super.key});
 
-  // --- Konfigurovatelné pozice a velikosti (v procentech) ---
-  static const double _easyX = 0.50;   // nad kopečky
+  static const double _easyX = 0.50;
   static const double _easyY = 0.33;
 
-  static const double _mediumX = 0.70; // pod horami
+  static const double _mediumX = 0.70;
   static const double _mediumY = 0.80;
 
-  static const double _hardX = 0.17;   // pod městem
+  static const double _hardX = 0.17;
   static const double _hardY = 0.88;
 
-  static const double _endlessX = 0.70; // ocas komety
+  static const double _endlessX = 0.70;
   static const double _endlessY = 0.10;
 
   static const double _easyFont    = 24;
@@ -46,7 +45,7 @@ class RunSelectScreen extends StatelessWidget {
           tooltip: 'Zpět',
         ),
         title: Text(
-          T.selectMode(), // „Vyber obtížnost / Choose difficulty“
+          T.selectMode(),
           style: const TextStyle(
             fontFamily: 'Augarix',
             fontSize: 22,
@@ -62,7 +61,6 @@ class RunSelectScreen extends StatelessWidget {
 
           return Stack(
             children: [
-              // Pozadí
               Positioned.fill(
                 child: Image.asset(
                   'assets/images/Difficulty-bg 3.png',
@@ -72,7 +70,6 @@ class RunSelectScreen extends StatelessWidget {
                 ),
               ),
 
-              // Snadná (černý text)
               _hotspot(
                 w: w, h: h, x: _easyX, y: _easyY,
                 label: T.modeEasy(),
@@ -81,7 +78,6 @@ class RunSelectScreen extends StatelessWidget {
                 onTap: () => _goTo(context, const EasyRun()),
               ),
 
-              // Střední (černý text)
               _hotspot(
                 w: w, h: h, x: _mediumX, y: _mediumY,
                 label: T.modeMedium(),
@@ -90,7 +86,6 @@ class RunSelectScreen extends StatelessWidget {
                 onTap: () => _goTo(context, const MediumRun()),
               ),
 
-              // Těžká (černý text)
               _hotspot(
                 w: w, h: h, x: _hardX, y: _hardY,
                 label: T.modeHard(),
@@ -99,7 +94,6 @@ class RunSelectScreen extends StatelessWidget {
                 onTap: () => _goTo(context, const HardRun()),
               ),
 
-              // Nekonečná (bílý text kvůli světlému ocasu komety)
               _hotspot(
                 w: w, h: h, x: _endlessX, y: _endlessY,
                 label: T.modeEndless(),
@@ -116,9 +110,7 @@ class RunSelectScreen extends StatelessWidget {
   }
 
   Future<void> _goTo(BuildContext context, Widget screen) async {
-    // Hudbu i seed nyní řeší GameBase při vytvoření nového seedu.
     await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
-    // Po návratu se o znovuspuštění menu hudby postará MainMenu/Settings (ensureMenuMusic).
   }
 
   static Widget _hotspot({

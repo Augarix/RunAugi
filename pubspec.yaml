@@ -91,6 +91,11 @@ flutter:
     - assets/images/icon_leaderboard.png
     - assets/images/icon_settings.png
     - assets/images/icon_achievements.png
+    - assets/images/endless/EN_bg1.png
+    - assets/images/endless/EN_bg2.png
+    - assets/images/endless/EN_bg3.png
+    - assets/images/endless/EN_mid.png
+
 
   fonts:
     - family: Augarix

@@ -306,8 +306,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       const AssetImage(_deathImg),
       const AssetImage(_groundedImg),
       const AssetImage(_gearIcon),
-      AssetImage('${widget.spriteFolder}${widget.spritePrefix}_spike.png'),
       // Dlaždice aktuálního game modu (dle spritePrefix)
+      AssetImage('${widget.spriteFolder}${widget.spritePrefix}_spike.png'),
       AssetImage('${widget.spriteFolder}${widget.spritePrefix}_start.png'),
       AssetImage('${widget.spriteFolder}${widget.spritePrefix}_mid.png'),
       AssetImage('${widget.spriteFolder}${widget.spritePrefix}_fill.png'),
@@ -319,8 +319,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       await precacheImage(p, ctx);
     }
 
-    // Vygeneruj celý level během loading overlaye (za černou obrazovkou)
-    // Tím jsou všechny překážky připraveny ihned po načtení
+    // Vygeneruj celý level během loading overlaye
     if (mounted) {
       final totalLength = widget.length.inMilliseconds / 1000.0 * speed;
       _generateFullLevel(totalLength + 4000);
@@ -494,8 +493,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         checkpoints = savedCheckpointCount;
         nextCheckpointIn = widget.checkpointFreq;
         _savedElapsedMs = savedElapsedMs;
-        // Vygeneruj celý level od 0 do checkpointu + buffer
-        worldX = 0; // generuj od začátku
+        // Vygeneruj level od 0 do checkpointu + buffer
+        worldX = 0;
         _generateFullLevel(savedCheckpoint + 4000);
         // Po vygenerování posuň runnera na checkpoint (s reaction gap ochranou)
         worldX = _safeSpawnX(savedCheckpoint);
@@ -678,6 +677,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       // EASY: jen SPIKE a TYP A (žádné B, žádné C)
       // MEDIUM+: SPIKE (20%), TYP A (40%), TYP B (40%)
       final isEasy = widget.modeName == 'EASY';
+
       final canSpike = lastLayers < highThreshold && lastWasBox;
       // Easy: spike 25%, ostatní: 20%
       // EASY: 40% spike šance (více spiků = více legionářů želvy)
@@ -1023,7 +1023,6 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
       if (isEasyMode) {
         // EASY: celý povrch walkable, žádný slope
-        // Hitbox = celá šířka ob.x až ob.x + ob.width
         if (runnerWorldX < ob.x || runnerWorldX > ob.x + ob.width + runnerRadius) continue;
         if (obTop < ground) ground = obTop;
       } else {
@@ -1191,13 +1190,10 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         // SPIKE: jakýkoli kontakt je smrt
         return true;
       } else if (widget.modeName == 'EASY') {
-        // EASY BOX: smrtící pouze čelní náraz (zleva), nahoře a konec jsou OK
+        // EASY BOX: smrtící pouze čelní náraz (zleva)
         final currentGroundTop = _effectiveGroundY(h, _runnerWorldX);
-        // Stojíme nahoře → OK
         if (grounded && currentGroundTop < baseGround) continue;
-        // Přelet shora → OK
         if (rBottom <= top + 6) continue;
-        // Čelní náraz zleva → smrt
         if ((rLeftWorld < oLeft) && (rRightWorld > oLeft + 1)) return true;
       } else {
         // BOX:
@@ -1729,10 +1725,10 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     // Progress 0..1 (ENDLESS = podle checkpointů, ostatní = čas)
     double progress;
     String label;
-    if (widget.modeName == 'ENDLESS') {
-      // Endless: zobraz počet checkpointů
-      progress = (checkpoints % 10) / 10.0; // pulzuje každých 10 CP
-      label = '${checkpoints} CP';
+    if (false) {
+      // Endless má vlastní progress bar v endless_run.dart
+      progress = 0;
+      label = '';
     } else {
       // Progress = elapsed / total
       // _savedElapsedMs > 0 = restore z checkpointu, drž tuto hodnotu dokud hra nezačne
@@ -2121,10 +2117,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       final obGroundY = groundY - ob.groundOffset;
 
       if (widget.modeName == 'EASY') {
-        // Easy: jen HL_mid dlaždice za sebou s 10% překryvem
-        // Dlaždice N+1 překryje dlaždici N zprava o 10% šířky
-        final midW    = sMidW; // šířka jedné dlaždice
-        final step    = midW * 0.90; // krok = 90% šířky (10% překryv)
+        // Easy: jen mid dlaždice za sebou s 10% překryvem
+        final midW    = sMidW;
+        final step    = midW * 0.90;
         final midCols = max(1, (ob.width / step).round());
         final imgTop  = obGroundY - sTileH;
         if (screenX0 > size.width + 256 || screenX0 + ob.width < -256) continue;

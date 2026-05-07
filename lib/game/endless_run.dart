@@ -27,7 +27,7 @@ const double _kReactionSec  = 0.4; // kratší – pro mezery mezi platformami
 const double _kFloorH       = _kFloorStepY;          // výška patra = _kFloorStepY
 const double _kPlatformH    = _kRunnerR;              // výška platformy = výška runnera (vyplní prostor red→green)
 const double _kMidW         = 48.0;                  // šířka jednoho bloku EN_mid (1365*36/1024)
-const double _kMaxFloors    = 4; // max floor = 6 (kamera sleduje runnera)
+const double _kMaxFloors    = 6; // max floor = 6 (kamera sleduje runnera)
 
 // ── Tuning – mezery mezi platformami ─────────────────────────
 // Mezera mezi platformami v ose X (vzdálenost mezi koncem jedné a začátkem další)
@@ -378,10 +378,20 @@ class _EndlessRunState extends State<EndlessRun>
       final placeX = cursor + gap;
 
       // ── Přidej platformu ─────────────────────────────────────────
-      _platforms.add(_Platform(
-        x: placeX, width: platW, floor: nextFloor,
-        type: isCrossroads ? _PlatformType.crossroads : _PlatformType.normal,
-      ));
+
+      // Zabráň překryvu platforem na stejném flooru
+      final hasOverlap = _platforms.any((p) =>
+      p.floor == nextFloor &&
+          p.x < placeX + platW &&
+          p.x + p.width > placeX);
+      if (!hasOverlap) {
+        _platforms.add(_Platform(
+          x: placeX, width: platW, floor: nextFloor,
+          type: isCrossroads ? _PlatformType.crossroads : _PlatformType.normal,
+        ));
+      } else {
+        debugPrint('  SKIP OVERLAP plat x=${placeX.round()} floor=$nextFloor');
+      }
 
       // Rozcestí – T-křižovatka:
       // Spodní platforma normální délky (už přidána výše)
@@ -392,15 +402,32 @@ class _EndlessRunState extends State<EndlessRun>
         if (clearance >= _kRunnerR * 2 + 20) {
           // Horní platforma začíná uprostřed spodní
           final upperStartX = placeX + platW * 0.5;
-          final upperCols = (_kPlatMinCols + _rng.nextInt(_kPlatMaxCols - _kPlatMinCols + 1));
+          // Horní platforma nesmí přesahovat pravý okraj spodní platformy
+          final maxUpperW = platW * 0.5;
+          final maxUpperCols = (maxUpperW / _kMidW).floor();
+          // Pokud se horní platforma nevejde (spodní příliš krátká), negeneruj rozcestí
+          if (maxUpperCols < _kPlatMinCols) continue; // skip crossroads
+          final upperCols = _kPlatMinCols + _rng.nextInt((maxUpperCols - _kPlatMinCols + 1).clamp(1, maxUpperCols));
           final upperW = upperCols * _kMidW;
-          _platforms.add(_Platform(
-            x: upperStartX,
-            width: upperW,
-            floor: upperFloor,
-            type: _PlatformType.crossroads,
-          ));
-          debugPrint('  CROSSROADS: lower x=${placeX.round()} w=${platW.round()} upper x=${upperStartX.round()} w=${upperW.round()} floor=$upperFloor');
+          // Zabráň překryvu horní platformy rozcestí
+          final hasUpperOverlap = _platforms.any((p) =>
+          p.floor == upperFloor &&
+              p.x < upperStartX + upperW &&
+              p.x + p.width > upperStartX);
+          if (!hasUpperOverlap) {
+            _platforms.add(_Platform(
+              x: upperStartX,
+              width: upperW,
+              floor: upperFloor,
+              type: _PlatformType.crossroads,
+            ));
+          } else {
+            debugPrint('  SKIP OVERLAP upper x=${upperStartX.round()} floor=$upperFloor');
+          }
+          final lowerWorldY = _platforms[_platforms.length-2].worldY(_screenH);
+          final upperWorldY = _platforms.last.worldY(_screenH);
+          debugPrint('  CROSS lower: x=${placeX.round()}..${(placeX+platW).round()} floor=$nextFloor worldY=${lowerWorldY.round()}');
+          debugPrint('  CROSS upper: x=${upperStartX.round()}..${(upperStartX+upperW).round()} floor=$upperFloor worldY=${upperWorldY.round()} cols=$upperCols maxCols=$maxUpperCols');
         }
       }
 
@@ -637,7 +664,7 @@ class _EndlessRunState extends State<EndlessRun>
   // Safe spawn
   // ─────────────────────────────────────────────────────────────
   void _updateCamera() {
-    final targetRunnerScreenY = _screenH * 0.65;
+    final targetRunnerScreenY = _screenH * 0.45; // runner výše = více prostoru pod ním
     _targetCameraY = targetRunnerScreenY - _runnerY;
     if (_targetCameraY < 0) _targetCameraY = 0;
     _cameraY += (_targetCameraY - _cameraY) * 0.10;

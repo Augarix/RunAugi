@@ -56,7 +56,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const double _twoColsMinWidth = 660.0;
   static const double _cellGap = 6.0;
 
-  final List<String> _characterIds = const ['augi'];
+  final List<String> _characterIds = const ['placeholder'];
   int _charIndex = 0;
 
   late final _set = _parallaxSets[Random().nextInt(_parallaxSets.length)];
@@ -72,10 +72,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       systemNavigationBarIconBrightness: Brightness.light,
     ));
     nameCtrl.text = s.username;
+    s.addListener(_onSettingsChanged);
+  }
+
+  void _onSettingsChanged() {
+    if (mounted) {
+      final newName = s.username;
+      if (nameCtrl.text != newName) nameCtrl.text = newName;
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
+    s.removeListener(_onSettingsChanged);
     nameCtrl.dispose();
     super.dispose();
   }
@@ -125,7 +135,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       body: Stack(
         children: [
-          // Parallax pozadí – stejné jako main menu
           Positioned.fill(
             child: ParallaxBackground(
               backgroundAsset: _set.bg,
@@ -149,7 +158,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          // Tmavý overlay – 0.55 pro lepší čitelnost obsahu
           Positioned.fill(
             child: Container(color: Colors.black.withOpacity(0.55)),
           ),
@@ -234,22 +242,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _usernameField() {
-    return LayoutBuilder(
-      builder: (context, c) {
-        final maxW = c.maxWidth.isFinite ? c.maxWidth : 0.0;
-        double want = maxW * 1.10;
-        if (maxW >= 480) {
-          want = want < 480 ? 480 : want;
-        }
-        final box = maxW > 0
-            ? ConstrainedBox(
-          constraints: BoxConstraints.tightFor(width: want.clamp(0.0, maxW)),
-          child: _usernameTextField(),
-        )
-            : _usernameTextField();
-        return box;
-      },
-    );
+    return _usernameTextField();
   }
 
   Widget _usernameTextField() {
@@ -267,11 +260,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _characterPickerCompact() {
-    String assetFor(String id) => 'assets/images/augi.png';
+    String assetFor(String id) => 'assets/images/placeholder.png';
     final id = _characterIds[_charIndex];
 
     const btnSize = 40.0;
-    const preview = 48.0;
+    const preview = 64.0;
 
     Widget arrow(IconData icon, VoidCallback onTap) {
       return InkResponse(

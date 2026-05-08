@@ -13,10 +13,13 @@ class SettingsService with ChangeNotifier {
   Lang _lang = Lang.cz;
   bool _musicOn = true;
   bool _vibrationOn = true;
-  String _username = 'Anonymní Kelt #0001';
   String _version = '0.1.0+1';
-  String? _characterId = 'augi';
-  MusicStyle _musicStyle = MusicStyle.traditional; // ⬅️ NOVÉ: default
+  String? _characterId = 'placeholder';
+  MusicStyle _musicStyle = MusicStyle.traditional;
+
+  static const _defaultUsernameCz = 'Anonymní Kelt #0001';
+  static const _defaultUsernameEn = 'Anonymous Celt #0001';
+  String _username = _defaultUsernameCz;
 
   // Keys
   static const _kLang = 'lang';
@@ -25,11 +28,10 @@ class SettingsService with ChangeNotifier {
   static const _kUsername = 'username';
   static const _kCharacterId = 'characterId';
   static const _kVersion = 'version';
-  static const _kMusicStyle = 'musicStyle'; // ⬅️ NOVÉ
+  static const _kMusicStyle = 'musicStyle';
 
-  // Migrace
-  static const _kMusicDefaultMigratedV1 = 'music_default_migrated_v1';
-  static const _kMusicForceOnMigratedV2 = 'music_force_on_migrated_v2';
+  // Migrace – jednorázové opravy starých dat
+  static const _kMusicMigratedV2 = 'music_force_on_migrated_v2';
 
   // Getters
   Lang get lang => _lang;
@@ -38,7 +40,7 @@ class SettingsService with ChangeNotifier {
   String get username => _username;
   String get version => _version;
   String? get characterId => _characterId;
-  MusicStyle get musicStyle => _musicStyle; // ⬅️ NOVÉ
+  MusicStyle get musicStyle => _musicStyle;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -53,27 +55,18 @@ class SettingsService with ChangeNotifier {
     final musicVal = _parseBool(musicRaw);
 
     if (!hasMusicKey) {
-      // čistá instalace → default ON + uložit
       _musicOn = true;
       await prefs.setBool(_kMusicOn, true);
     } else if (musicVal != null) {
       _musicOn = musicVal;
     }
 
-    // Migrace V1 – historický bug (vynutit ON jednou)
-    final migratedV1 = prefs.getBool(_kMusicDefaultMigratedV1) ?? false;
-    if (!migratedV1) {
+    // Migrace – jednorázově vynutit hudbu ON pro staré instalace s chybným stavem
+    final migrated = prefs.getBool(_kMusicMigratedV2) ?? false;
+    if (!migrated) {
       _musicOn = true;
       await prefs.setBool(_kMusicOn, true);
-      await prefs.setBool(_kMusicDefaultMigratedV1, true);
-    }
-
-    // Migrace V2 – pokud i tak zůstala hudba vypnutá ve starých instancích, jednorázově ON
-    final migratedV2 = prefs.getBool(_kMusicForceOnMigratedV2) ?? false;
-    if (!migratedV2 && _musicOn == false) {
-      _musicOn = true;
-      await prefs.setBool(_kMusicOn, true);
-      await prefs.setBool(_kMusicForceOnMigratedV2, true);
+      await prefs.setBool(_kMusicMigratedV2, true);
     }
 
     // MUSIC STYLE (Tradiční/Moderní) — default traditional
@@ -92,13 +85,17 @@ class SettingsService with ChangeNotifier {
     if (userStr != null && userStr.trim().isNotEmpty) {
       _username = userStr.trim();
     }
+    // Pokud je uložené jméno výchozí hodnota, aktualizuj ho podle jazyka
+    if (_username == _defaultUsernameCz || _username == _defaultUsernameEn) {
+      _username = _lang == Lang.cz ? _defaultUsernameCz : _defaultUsernameEn;
+    }
 
     // CHARACTER
     final charRaw = prefs.get(_kCharacterId);
     if (charRaw is String && charRaw.isNotEmpty) {
       _characterId = charRaw;
     } else if (charRaw is int) {
-      _characterId = 'augi';
+      _characterId = 'placeholder';
       await prefs.setString(_kCharacterId, _characterId!);
     }
 
@@ -116,7 +113,7 @@ class SettingsService with ChangeNotifier {
       await prefs.setString(_kCharacterId, _characterId!);
     }
     await prefs.setString(_kVersion, _version);
-    await prefs.setString(_kMusicStyle, // ⬅️ NOVÉ
+    await prefs.setString(_kMusicStyle,
         _musicStyle == MusicStyle.modern ? 'modern' : 'traditional');
 
     notifyListeners();
@@ -125,8 +122,13 @@ class SettingsService with ChangeNotifier {
   // Setters
   Future<void> setLang(Lang v) async {
     _lang = v;
+    // Pokud má uživatel výchozí jméno, přepni ho do nového jazyka
+    if (_username == _defaultUsernameCz || _username == _defaultUsernameEn) {
+      _username = v == Lang.cz ? _defaultUsernameCz : _defaultUsernameEn;
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kLang, v == Lang.cz ? 'cz' : 'en');
+    await prefs.setString(_kUsername, _username);
     notifyListeners();
   }
 
@@ -163,7 +165,7 @@ class SettingsService with ChangeNotifier {
   }
 
   Future<void> setCharacterId(String? id) async {
-    _characterId = (id == null || id.isEmpty) ? 'augi' : id;
+    _characterId = (id == null || id.isEmpty) ? 'placeholder' : id;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kCharacterId, _characterId!);
     notifyListeners();

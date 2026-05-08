@@ -124,7 +124,8 @@ class _EndlessRunState extends State<EndlessRun>
   bool      _fell          = false;
   bool      _dead          = false;   // čelní náraz = death sekvence
   bool      _deadLanded    = false;
-  bool      _forcedStick   = false; // ignoruj notTooLow při stickToGround
+  bool      _forcedStick   = false;
+  _Platform? _passThroughPlat;       // platforma přes kterou runner prošel zdola
   bool      _wasJumping    = false;
   int       _currentFloor   = 0;    // aktuální floor na kterém runner stojí
   DateTime? _deadAt;
@@ -476,23 +477,29 @@ class _EndlessRunState extends State<EndlessRun>
       if (_runnerWorldX < pl.x) continue;
       if (_runnerWorldX > pl.x + pl.width + _kFloorH + _kRunnerR) continue;
 
-      // Fyzikální Y bez _cameraY
-      final platTopY   = pl.worldY(_screenH); // BEZ _cameraY
+      final platTopY   = pl.worldY(_screenH);
       final slopeStart = pl.x + pl.width;
       final slopeEnd   = pl.x + pl.width + _kFloorH;
 
       double candidateY = noPlatform;
 
       if (_runnerWorldX <= slopeStart) {
-        final tooHigh    = platTopY < runnerBottom - _kFloorStepY - _kRunnerR;
-        final fallingDown = _vy >= -100;
-        final notTooLow = _forcedStick || _runnerY <= platTopY;
-        // Platforma smí chytit runnera pokud je runner nad ní nebo forcedStick
-        final canLand = _forcedStick || (fallingDown && notTooLow);
-        if ((_forcedStick || !tooHigh) && canLand) candidateY = platTopY;
+        // Ignoruj platformu NAD runnerem při letu nahoru
+        if (!_forcedStick && _vy < 0 && platTopY < _runnerY - _kRunnerR) {
+          _passThroughPlat = pl;
+        } else {
+          final tooHigh    = platTopY < runnerBottom - _kFloorStepY - _kRunnerR;
+          final fallingDown = _vy >= -100;
+          final notTooLow  = _forcedStick || _runnerY <= platTopY;
+          final canLand    = _forcedStick || (fallingDown && notTooLow);
+          if ((_forcedStick || !tooHigh) && canLand) candidateY = platTopY;
+        }
       } else if (_runnerWorldX <= slopeEnd) {
-        // Slope: chytí runnera jen pokud padá dolů (vy >= 0)
-        // Pokud runner letí nahoru přes slope, ignoruj ji – nechej ho letět
+        if (pl == _passThroughPlat) continue;
+        if (_vy < 0 && !_forcedStick) {
+          _passThroughPlat = pl;
+          continue;
+        }
         if (_vy >= 0 || _forcedStick) {
           final t = (_runnerWorldX - slopeStart) / (slopeEnd - slopeStart);
           final slopeY = platTopY + t * _kFloorH;
@@ -541,7 +548,7 @@ class _EndlessRunState extends State<EndlessRun>
         final platEnd = (pl.x + pl.width).round();
         debugPrint('RUN wx=$wx floor=${pl.floor} y=${ground.round()} '
             'onSlope=$onSlope vy=${_vy.round()} grounded=$_grounded '
-            'platX=${pl.x.round()}..${platEnd} posOnPlat=${posOnPlat}px '
+            'platX=${pl.x.round()}..$platEnd posOnPlat=${posOnPlat}px '
             'wasJumping=$_wasJumping');
       } else {
         debugPrint('RUN wx=$wx NO_PLATFORM vy=${_vy.round()} '
@@ -550,8 +557,6 @@ class _EndlessRunState extends State<EndlessRun>
     }
     return ground;
   }
-
-
   void _stickToGround() {
     _forcedStick = true;
     final g = _effectiveGroundY();
@@ -610,10 +615,10 @@ class _EndlessRunState extends State<EndlessRun>
       _vy      = 0;
       if (!_grounded) _lastGroundedAt = DateTime.now();
       _grounded = true;
-      // Reset _wasJumping jen na walkable ploše, ne na slope
       final onSlopeNow = _groundSource != null &&
           _runnerWorldX > _groundSource!.x + _groundSource!.width;
       if (!onSlopeNow) _wasJumping = false;
+      if (_groundSource != _passThroughPlat) _passThroughPlat = null;
     } else if (_runnerY >= localGround - snapTol && _vy >= 0) {
       _runnerY = localGround;
       _vy      = 0;
@@ -622,6 +627,7 @@ class _EndlessRunState extends State<EndlessRun>
       final onSlopeNow = _groundSource != null &&
           _runnerWorldX > _groundSource!.x + _groundSource!.width;
       if (!onSlopeNow) _wasJumping = false;
+      if (_groundSource != _passThroughPlat) _passThroughPlat = null;
     } else {
       _grounded = false;
     }
@@ -647,6 +653,8 @@ class _EndlessRunState extends State<EndlessRun>
       if (_grounded && _runnerY <= platTopY) continue;
       // Přeskoč platformu na které runner stojí
       if (_groundSource == pl) continue;
+      // Ignoruj náraz zdola – runner skočil pod platformu, gravitace ho vrátí
+      if (rTop < platTopY && _vy < 0) continue;
 
       final hitFront = front >= pl.x && front <= pl.x + _kRunnerR * 1.5;
       if (hitFront) {
@@ -1269,10 +1277,11 @@ class _EndlessRunState extends State<EndlessRun>
       ],
     );
   }
-}
+
 
 // ─────────────────────────────────────────────────────────────
 // Debug painter
+}
 // ─────────────────────────────────────────────────────────────
 class _EndlessDebugPainter extends CustomPainter {
   final List<_Platform> platforms;

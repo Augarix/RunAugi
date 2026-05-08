@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="runaugi"
+        android:label="Run Augarix, run"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon">
         <activity

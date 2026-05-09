@@ -56,7 +56,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const double _twoColsMinWidth = 660.0;
   static const double _cellGap = 6.0;
 
-  final List<String> _characterIds = const ['placeholder'];
+  final List<({String id, String asset, bool locked})> _characters = const [
+    (id: 'augi', asset: 'assets/images/run/Run1.png', locked: false),
+    (id: 'placeholder', asset: 'assets/images/placeholder.png', locked: true),
+  ];
   int _charIndex = 0;
 
   late final _set = _parallaxSets[Random().nextInt(_parallaxSets.length)];
@@ -260,8 +263,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _characterPickerCompact() {
-    String assetFor(String id) => 'assets/images/placeholder.png';
-    final id = _characterIds[_charIndex];
+    final char = _characters[_charIndex];
 
     const btnSize = 40.0;
     const preview = 64.0;
@@ -297,7 +299,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: Colors.white24),
           ),
-          child: Image.asset(assetFor(id), fit: BoxFit.contain),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Image.asset(char.asset, fit: BoxFit.contain,
+                color: char.locked ? Colors.white.withOpacity(0.25) : null,
+                colorBlendMode: char.locked ? BlendMode.modulate : null,
+              ),
+              if (char.locked)
+                const Icon(Icons.lock, color: Colors.white54, size: 24),
+            ],
+          ),
         ),
         const SizedBox(width: 8),
         arrow(Icons.chevron_right, _nextCharacter),
@@ -307,16 +319,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _prevCharacter() {
     setState(() {
-      _charIndex = (_charIndex - 1) % _characterIds.length;
-      if (_charIndex < 0) _charIndex = _characterIds.length - 1;
-      s.setCharacterId(_characterIds[_charIndex]);
+      _charIndex = (_charIndex - 1 + _characters.length) % _characters.length;
+      if (!_characters[_charIndex].locked) s.setCharacterId(_characters[_charIndex].id);
     });
   }
 
   void _nextCharacter() {
     setState(() {
-      _charIndex = (_charIndex + 1) % _characterIds.length;
-      s.setCharacterId(_characterIds[_charIndex]);
+      _charIndex = (_charIndex + 1) % _characters.length;
+      if (!_characters[_charIndex].locked) s.setCharacterId(_characters[_charIndex].id);
     });
   }
 }

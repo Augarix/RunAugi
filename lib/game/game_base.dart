@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:vibration/vibration.dart';
 import 'package:gif/gif.dart'; // ⬅️ pauzovatelné GIF pozadí
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -1275,6 +1277,15 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       _deadFrozen = true;
       _gameRunning = false;
     });
+    // Vibrace při smrti – pouze pokud má uživatel zapnuté vibrace
+    debugPrint('[DEATH] game_base: _deadFrozen=true, vibrationOn=${SettingsService.I.vibrationOn}');
+    if (SettingsService.I.vibrationOn) {
+      debugPrint('[DEATH] game_base: spouštím Vibration.vibrate()');
+      Vibration.vibrate(duration: 400, amplitude: 255);
+      debugPrint('[DEATH] game_base: Vibration.vibrate() zavoláno');
+    } else {
+      debugPrint('[DEATH] game_base: vibrace vypnuty, přeskakuji');
+    }
     bgPlayingNotifier.value = false;
     _syncBgAnim();
     _armGroundedAfterDeath();

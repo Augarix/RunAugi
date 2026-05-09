@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:vibration/vibration.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../achievements/ach_logic.dart';
@@ -824,6 +826,14 @@ class _EndlessRunState extends State<EndlessRun>
       _deadPhase   = 0;
       _gameRunning = false;
       _bgPlaying.value = false;
+      debugPrint('[DEATH] endless_run: kolize dead.png, vibrationOn=${SettingsService.I.vibrationOn}');
+      if (SettingsService.I.vibrationOn) {
+        debugPrint('[DEATH] endless_run: spouštím Vibration.vibrate() - kolize');
+        Vibration.vibrate(duration: 400, amplitude: 255);
+        debugPrint('[DEATH] endless_run: Vibration.vibrate() zavoláno - kolize');
+      } else {
+        debugPrint('[DEATH] endless_run: vibrace vypnuty');
+      }
       setState(() {});
       return;
     }
@@ -834,6 +844,14 @@ class _EndlessRunState extends State<EndlessRun>
       _fellAt      = now;
       _gameRunning = false;
       _bgPlaying.value = false;
+      debugPrint('[DEATH] endless_run: pád do propasti, vibrationOn=${SettingsService.I.vibrationOn}');
+      if (SettingsService.I.vibrationOn) {
+        debugPrint('[DEATH] endless_run: spouštím Vibration.vibrate() - pád');
+        Vibration.vibrate(duration: 400, amplitude: 255);
+        debugPrint('[DEATH] endless_run: Vibration.vibrate() zavoláno - pád');
+      } else {
+        debugPrint('[DEATH] endless_run: vibrace vypnuty - pád');
+      }
       setState(() {});
       return;
     }

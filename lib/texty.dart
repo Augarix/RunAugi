@@ -9,7 +9,7 @@ class T {
   static String appTitle() => _t('AugiRun', 'AugiRun');
 
   // Main Menu
-  static String btnRun() => _t('RUN!', 'RUN!');
+  static String btnRun() => _t('Běž!', 'RUN!');
   static String btnSettings() => _t('Nastavení', 'Settings');
   static String btnLeaderboard() => _t('Žebříček', 'Leaderboard');
   static String btnAchievements() => _t('Achievementy', 'Achievements');
@@ -40,6 +40,10 @@ class T {
 
   // Leaderboard
   static String leaderboardTitle() => _t('Žebříček', 'Leaderboard');
+  static String leaderboardSubtitle() => _t(
+    'Online soutěž s kamarády již brzy. Prozatím překonávej vlastní rekord a telefon.',
+    'Online competition with friends coming soon. For now, just beat your own device.',
+  );
   static String miles() => _t('km', 'miles');
   static String division() => _t('Divize ', 'Division ');
 

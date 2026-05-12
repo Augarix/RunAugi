@@ -164,6 +164,22 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
             onPressed: () => Navigator.of(context).pop(),
           ),
           automaticallyImplyLeading: false,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(36),
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8, left: 16, right: 16),
+              child: Text(
+                T.leaderboardSubtitle(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontFamily: 'Augarix',
+                  fontSize: 12,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ),
           systemOverlayStyle: const SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
             statusBarIconBrightness: Brightness.light,

@@ -152,7 +152,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   static const double easySpikeScale = 4.9;
 
   // ── Hard CT_spike ───────────────────────────────────────────
-  static const double hardSpikeW = 90.0;
+  // CT_spike.png: 1024×665, poměr 1.54, výška = runnerRadius*2 = 72px → šířka = 111px
+  static const double hardSpikeW = 111.0;
   // Přibližná konverze px → km (závisí na speed a měřítku)
   // 1 km = 1000m, baseSpeed=520px/s → při 100% speedPercent
   // Laditelná konstanta – upravit dle pocitu ve hře
@@ -911,10 +912,15 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         if (lastWasBox && rng.nextDouble() < 0.25) {
           final midGap  = reactionGap * (1.2 + rng.nextDouble() * 0.8);
           final midX    = cursor + midGap;
-          // 1 blok = 1 CT_mid.png, výška fixní = výška dlaždice, délka = počet bloků
-          final midBlocks = 3 + rng.nextInt(8); // 3–10 bloků
-          final midW      = midBlocks * _tileMidW * tileScale;
-          final midH      = _tileH * tileScale; // fixní výška = 1 dlaždice
+          // CT_mid: mřížka bloků. Výška 2–5 vrstev (jako medium), šířka 3–10 bloků.
+          // Grafika = CT_mid.png stohovaná do mřížky X×Y.
+          // blockH = výška vrstvy (tileH), blockW podle poměru obrázku 1018×830
+          const midBlockH = _tileH * tileScale;              // 23.75px
+          const midBlockW = midBlockH * (1018.0 / 830.0);    // ~29.1px
+          final midLayers = minLayers + rng.nextInt(maxLayers - minLayers + 1); // 2–5
+          final midBlocks = 3 + rng.nextInt(8); // 3–10 bloků na šířku
+          final midW      = midBlocks * midBlockW;
+          final midH      = midLayers * midBlockH; // variabilní výška
           obstacles.add(Obstacle(
             x: midX, width: midW, height: midH,
             fromFloor: true, type: ObstacleType.hardMid,
@@ -923,7 +929,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
           lastWasBox = false;
           lastWasSpike = false;
           lastWasPlatform = true;
-          lastLayers = 1;
+          lastLayers = midLayers;
         } else if (lastWasBox && rng.nextDouble() < 0.15) {
           final spikeGap = reactionGap * (1.2 + rng.nextDouble() * 0.6);
           final spikeX   = cursor + spikeGap;
@@ -2218,24 +2224,34 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         continue;
       }
 
-      // ── Hard CT_mid rendering (Easy style: bloky CT_mid.png za sebou) ──
+      // ── Hard CT_mid rendering (mřížka stohovaných CT_mid.png bloků) ──
       if (ob.type == ObstacleType.hardMid) {
         final obGroundYH = groundY - ob.groundOffset;
-        final blockW     = _tileMidW * tileScale;
-        final blockH     = _tileH   * tileScale;
-        final blockCount = max(1, (ob.width / blockW).round());
-        // Vizuální posun dolů o 20% výšky bloku (volné místo v obrázku)
-        final visualSink = blockH * 0.20;
-        final imgTop     = obGroundYH - blockH + visualSink;
+        // CT_mid.png: 1018×830, poměr 1.227 → blockW zachová poměr obrázku
+        const stepH = _tileH * tileScale;            // 23.75px (krok vrstvy)
+        const stepW = stepH * (1018.0 / 830.0);      // ~29.1px (krok sloupce)
+        // Bloky se vykreslí 2.5× větší než krok → překryv vyplní prázdná místa v obrázku
+        const overscan = 2.5;
+        const drawW = stepW * overscan;
+        const drawH = stepH * overscan;
+        final cols = max(1, (ob.width  / stepW).round());
+        final rows = max(1, (ob.height / stepH).round());
         if (screenX0 > size.width + 256 || screenX0 + ob.width < -256) continue;
-        for (int b = 0; b < blockCount; b++) {
-          children.add(Positioned(
-            left:   screenX0 + b * blockW,
-            top:    imgTop,
-            width:  blockW,
-            height: blockH,
-            child:  _safeImage('${widget.spriteFolder}${widget.spritePrefix}_mid.png'),
-          ));
+        // Vyplň mřížku odspodu nahoru; blok centrovaný na buňku (krok), přesah ven
+        const offX = (drawW - stepW) / 2;
+        const offY = (drawH - stepH) / 2;
+        for (int r = 0; r < rows; r++) {
+          // r=0 = nejspodnější vrstva u země, r=rows-1 = vrchní
+          final cellTop = obGroundYH - (r + 1) * stepH;
+          for (int c = 0; c < cols; c++) {
+            children.add(Positioned(
+              left:   screenX0 + c * stepW - offX,
+              top:    cellTop - offY,
+              width:  drawW,
+              height: drawH,
+              child:  _safeImage('${widget.spriteFolder}${widget.spritePrefix}_mid.png'),
+            ));
+          }
         }
         continue;
       }
@@ -2294,6 +2310,32 @@ class GameBaseState<TW extends GameBase> extends State<TW>
           ));
         }
         continue; // Easy hotovo – přeskoč Medium pyramid rendering
+      } else if (widget.modeName == 'HARD') {
+        // HARD: box se staví ze stejné CT_mid mřížky jako hardMid.
+        // CT_start/CT_end v hard neexistují → vše z CT_mid.png.
+        const stepH = _tileH * tileScale;
+        const stepW = stepH * (1018.0 / 830.0);
+        const overscan = 2.5;
+        const drawW = stepW * overscan;
+        const drawH = stepH * overscan;
+        final cols = max(1, (ob.width  / stepW).round());
+        final rows = max(1, (ob.height / stepH).round());
+        if (screenX0 > size.width + 256 || screenX0 + ob.width < -256) continue;
+        const offX = (drawW - stepW) / 2;
+        const offY = (drawH - stepH) / 2;
+        for (int r = 0; r < rows; r++) {
+          final cellTop = obGroundY - (r + 1) * stepH;
+          for (int c = 0; c < cols; c++) {
+            children.add(Positioned(
+              left:   screenX0 + c * stepW - offX,
+              top:    cellTop - offY,
+              width:  drawW,
+              height: drawH,
+              child:  _safeImage('${widget.spriteFolder}${widget.spritePrefix}_mid.png'),
+            ));
+          }
+        }
+        continue;
       } else {
         // MEDIUM+: pyramid rendering
         final physMidW = _tileMidW * tileScale;

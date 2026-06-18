@@ -2535,3 +2535,5 @@ class _RunnerPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RunnerPainter o) => true; // debug – vždy překresli
 }
+
+// test commit

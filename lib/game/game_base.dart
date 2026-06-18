@@ -936,14 +936,25 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         } else if (lastWasBox && rng.nextDouble() < 0.25) {
           final spikeGap = reactionGap * (1.2 + rng.nextDouble() * 0.6);
           final spikeX   = cursor + spikeGap;
-          // CT_spike nebo CT_spike1 (50/50)
+          // CT_spike (sudy) nebo CT_spike1 (HL_spike) – 50/50
           final isSpike1 = rng.nextBool();
+          // ── OVLADAČ VELIKOSTI (relativní k runnerovi, ne absolutní px) ──
+          // Výška = násobek průměru runnera (runnerRadius*2). Šířka = výška × poměr obrázku.
+          const runnerDiameter = runnerRadius * 2.0; // referenční velikost runnera
+          // HL_spike (834×948): výška 1.2× runnera, poměr šířky 834/948
+          const spike1HeightFactor = 1.6;
+          const spike1AspectWH     = 834.0 / 948.0;  // ~0.880
+          // CT_spike sudy (1024×665): výška 1.0× runnera, poměr šířky 1024/665
+          const sudyHeightFactor   = 1.0;
+          const sudyAspectWH       = 1024.0 / 665.0; // ~1.540
+          final spikeH = (isSpike1 ? spike1HeightFactor : sudyHeightFactor) * runnerDiameter;
+          final spikeW = spikeH * (isSpike1 ? spike1AspectWH : sudyAspectWH);
           obstacles.add(Obstacle(
-            x: spikeX, width: hardSpikeW, height: runnerRadius * 2.0,
+            x: spikeX, width: spikeW, height: spikeH,
             fromFloor: true,
             type: isSpike1 ? ObstacleType.hardSpike1 : ObstacleType.hardSpike,
           ));
-          cursor = spikeX + hardSpikeW;
+          cursor = spikeX + spikeW;
           lastWasBox  = false;
           lastWasSpike = true;
           lastWasPlatform = false;

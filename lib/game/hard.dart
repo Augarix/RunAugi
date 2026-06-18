@@ -6,7 +6,7 @@ class HardRun extends GameBase {
   const HardRun({super.key})
       : super(
     modeName: 'HARD',
-    minIntro: const Duration(seconds: 4),
+    minIntro: const Duration(seconds: 2),
     length: const Duration(minutes: 5),
     milesOnFinish: 25,
     checkpointFreq: const Duration(seconds: 40),
@@ -30,7 +30,7 @@ class HardRun extends GameBase {
         ),
         ParallaxLayerConfig.scroll(
           asset: 'assets/images/hard/CT_3.png',
-          duration: Duration(seconds: 6), // vyrovnáno na rychlost hry 135%
+          duration: Duration(seconds: 5), // vyrovnáno na rychlost hry 135%
           topFraction: 0.87,
           fit: BoxFit.fitHeight,
           alignment: Alignment.bottomLeft,

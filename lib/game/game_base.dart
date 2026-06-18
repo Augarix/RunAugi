@@ -291,6 +291,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   bool _isRestoringLevel = false; // true = načítáme existující seed, false = generujeme nový
   bool _precached = false;
   bool _loading = true;
+  // Restore Y pozice runnera odložena na post-frame (správné MediaQuery)
+  bool _pendingRestoreStick = false;
 
   bool get _shouldBgPlay =>
       _gameRunning && !paused && _intro == IntroPhase.none && !_deadFrozen && !finished;
@@ -349,7 +351,12 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         ? const Duration(seconds: 2)
         : const Duration(seconds: 7);
     await Future.delayed(loadDelay);
-    if (mounted) setState(() => _loading = false);
+    if (mounted) {
+      setState(() => _loading = false);
+      // Pojistka: po skončení loadingu je MediaQuery jistě správné →
+      // dorovnej restore Y pozici runnera (pokud ještě nebyla aplikována).
+      _applyRestoreStick();
+    }
   }
 
   @override
@@ -518,15 +525,13 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         // Po vygenerování posuň runnera na checkpoint (s reaction gap ochranou)
         worldX = _safeSpawnX(savedCheckpoint);
         _runMeters = worldX / (baseSpeedPxPerSec * (widget.speedPercent / 100.0)) * speedMps;
-        // Nastav Y pozici stejně jako při respawnu – runner stojí na ground nebo walkable box
+        // ⚠️ Y pozici NELZE nastavit teď – _loadOrGenerateSeed běží z initState,
+        // kde MediaQuery ještě nevrací finální výšku obrazovky → špatný _effectiveGroundY.
+        // Odložíme _stickToGround do post-frame callbacku, kdy je výška správná.
+        _pendingRestoreStick = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) => _applyRestoreStick());
+        // Předběžné nastavení Y (může být dočasně nepřesné, opraví se v post-frame)
         _stickToGround();
-        // Pojistka: pokud je runner v kolizi, posuň dál dozadu
-        int safetyIter = 0;
-        while (_collides() && safetyIter < 20) {
-          worldX -= speed * 0.1;
-          _stickToGround();
-          safetyIter++;
-        }
         // Překresli widget s nově vygenerovanými překážkami
         if (mounted) setState(() {});
         // 🔍 DEBUG LOG
@@ -1087,6 +1092,23 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     grounded = true;
   }
 
+  // Aplikuje korektní Y pozici runnera po restoru levelu.
+  // Volá se z post-frame callbacku, kdy MediaQuery vrací finální výšku obrazovky.
+  // Tím se runner správně přilepí na vršek walkable překážky (ne na ground).
+  void _applyRestoreStick() {
+    if (!_pendingRestoreStick || !mounted) return;
+    _pendingRestoreStick = false;
+    _stickToGround();
+    // Pojistka: pokud je runner v kolizi, posuň dál dozadu
+    int safetyIter = 0;
+    while (_collides() && safetyIter < 20) {
+      worldX -= speed * 0.1;
+      _stickToGround();
+      safetyIter++;
+    }
+    if (mounted) setState(() {});
+  }
+
   void _stickToCeil() {
     final h = _screenH;
     final ceil = _effectiveCeilY(h); // konstantní strop (10 %)
@@ -1345,11 +1367,15 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   // ———————————————————————————————————————————————————————————
   void _armGroundedAfterDeath() {
     _deathStageTimer?.cancel();
-    _deathStageTimer = Timer(const Duration(milliseconds: 280), () {
+    // Sjednoceno s build přepínačem sprite (250ms): při přechodu Death → Grounded
+    // posuň runnera níž. Grounded sprite má dole nataženou ruku s mečem (ne záda),
+    // proto cílí na ~0.9 výšky displeje (kousek pod ground level).
+    _deathStageTimer = Timer(const Duration(milliseconds: 250), () {
       if (!mounted) return;
       if (_deadFrozen) {
+        final groundedY = _screenH * groundYFrac; // 0.9 výšky displeje
         setState(() {
-          // jen přerender – build z _lastDeathAt vybere Grounded.png
+          runnerY = groundedY - runnerRadius + runnerRadius * 0.9;
         });
       }
     });
@@ -1389,9 +1415,10 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     // ❄️ kompletní stop – čekáme na tap (po chvíli Death → Grounded)
     _longJumpTimer?.cancel();
     _longJumpTimer = null;
-    // Snap runnera vždy na base ground (ne na překážku) + vizuální offset
+    // Snap runnera na base ground. Malý vizuální offset dolů (0.25× poloměr),
+    // ať death/grounded sprite sedí na zemi a nepropadne mimo obraz.
     final baseGroundY = _screenH * groundYFrac;
-    runnerY = baseGroundY - runnerRadius + runnerRadius * 0.8;
+    runnerY = baseGroundY - runnerRadius + runnerRadius * 0.25;
     setState(() {
       paused = true;
       _deadFrozen = true;

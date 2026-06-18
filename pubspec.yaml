@@ -89,6 +89,8 @@ flutter:
     - assets/images/hard/CT_1.png
     - assets/images/hard/CT_2.png
     - assets/images/hard/CT_3.png
+    - assets/images/hard/CT_mid.png
+    - assets/images/hard/CT_spike.png
     - assets/images/icon_leaderboard.png
     - assets/images/icon_settings.png
     - assets/images/icon_achievements.png

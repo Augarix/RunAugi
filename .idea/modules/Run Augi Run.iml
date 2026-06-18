@@ -35,6 +35,18 @@
       <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/shared_preferences_foundation/example/.dart_tool" />
       <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/shared_preferences_foundation/example/.pub" />
       <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/shared_preferences_foundation/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/device_info_plus/.dart_tool" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/device_info_plus/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/device_info_plus/build" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/device_info_plus/example/.dart_tool" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/device_info_plus/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/device_info_plus/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/vibration/.dart_tool" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/vibration/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/vibration/build" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/vibration/example/.dart_tool" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/vibration/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/../../ios/.symlinks/plugins/vibration/example/build" />
     </content>
   </component>
 </module>

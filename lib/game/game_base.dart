@@ -20,7 +20,17 @@ import '../screens/run_select.dart';     // ⬅️ přechod na výběr obtížno
 // Intro a typy
 // ———————————————————————————————————————————————————————————
 enum IntroPhase { ready, set, go, none }
-enum ObstacleType { box, spike }
+enum ObstacleType {
+  box,
+  spike,
+  /// Hard: CT_mid – killing zleva, walkable nahoře, slope (varianta B) vpravo
+  /// Výška = 0.5–2.0× runnerRadius*2, krok 0.25
+  hardMid,
+  /// Hard: CT_spike (sudy) – killing zleva, walkable nahoře, slope horní část vpravo
+  hardSpike,
+  /// Hard: CT_spike1 – killing ze všech stran (identický s easy spike logicky)
+  hardSpike1,
+}
 
 // ———————————————————————————————————————————————————————————
 // Obstacle datový model
@@ -140,6 +150,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
   static const double scoreFlashSizePct = 0.20; // 20% výšky = ~78px na typickém telefonu
   /// Velikost Easy spike nezávisle na tileScaleOverride
   static const double easySpikeScale = 4.9;
+
+  // ── Hard CT_spike ───────────────────────────────────────────
+  static const double hardSpikeW = 90.0;
   // Přibližná konverze px → km (závisí na speed a měřítku)
   // 1 km = 1000m, baseSpeed=520px/s → při 100% speedPercent
   // Laditelná konstanta – upravit dle pocitu ve hře
@@ -314,6 +327,10 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       AssetImage('${widget.spriteFolder}${widget.spritePrefix}_mid.png'),
       AssetImage('${widget.spriteFolder}${widget.spritePrefix}_fill.png'),
       AssetImage('${widget.spriteFolder}${widget.spritePrefix}_end.png'),
+      // Hard: extra sprite typy
+      if (widget.modeName == 'HARD') ...[
+        AssetImage('${widget.spriteFolder}${widget.spritePrefix}_spike1.png'),
+      ],
       ..._runCycle.map((p) => AssetImage(p)),
     ];
 
@@ -886,6 +903,43 @@ class GameBaseState<TW extends GameBase> extends State<TW>
           final len = 400.0 + rng.nextInt(600);
           mirrors.add(MirrorMarker(at.toDouble(), (at + len).toDouble()));
         }
+
+        // ── Hard extra: CT_mid a CT_spike/CT_spike1 ──────────────
+        // Přidávají se jako samostatné překážky za aktuální překážkou
+        // s vlastní mezerou (reactionGap). Nepřepisují výše postavenou překážku.
+        // P(CT_mid after box) = 25%, P(CT_spike after box) = 15%
+        if (lastWasBox && rng.nextDouble() < 0.25) {
+          final midGap  = reactionGap * (1.2 + rng.nextDouble() * 0.8);
+          final midX    = cursor + midGap;
+          // 1 blok = 1 CT_mid.png, výška fixní = výška dlaždice, délka = počet bloků
+          final midBlocks = 3 + rng.nextInt(8); // 3–10 bloků
+          final midW      = midBlocks * _tileMidW * tileScale;
+          final midH      = _tileH * tileScale; // fixní výška = 1 dlaždice
+          obstacles.add(Obstacle(
+            x: midX, width: midW, height: midH,
+            fromFloor: true, type: ObstacleType.hardMid,
+          ));
+          cursor = midX + midW;
+          lastWasBox = false;
+          lastWasSpike = false;
+          lastWasPlatform = true;
+          lastLayers = 1;
+        } else if (lastWasBox && rng.nextDouble() < 0.15) {
+          final spikeGap = reactionGap * (1.2 + rng.nextDouble() * 0.6);
+          final spikeX   = cursor + spikeGap;
+          // CT_spike nebo CT_spike1 (50/50)
+          final isSpike1 = rng.nextBool();
+          obstacles.add(Obstacle(
+            x: spikeX, width: hardSpikeW, height: runnerRadius * 2.0,
+            fromFloor: true,
+            type: isSpike1 ? ObstacleType.hardSpike1 : ObstacleType.hardSpike,
+          ));
+          cursor = spikeX + hardSpikeW;
+          lastWasBox  = false;
+          lastWasSpike = true;
+          lastWasPlatform = false;
+          lastLayers = highThreshold;
+        }
       }
     }
   }
@@ -1018,7 +1072,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final isEasyMode = widget.modeName == 'EASY';
 
     for (final ob in obstacles) {
-      if (ob.type != ObstacleType.box) continue;
+      if (ob.type != ObstacleType.box &&
+          ob.type != ObstacleType.hardMid &&
+          ob.type != ObstacleType.hardSpike) continue;
 
       final localFloor = baseGround - ob.groundOffset;
       final obTop      = localFloor - ob.height;
@@ -1027,6 +1083,24 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         // EASY: celý povrch walkable, žádný slope
         if (runnerWorldX < ob.x || runnerWorldX > ob.x + ob.width + runnerRadius) continue;
         if (obTop < ground) ground = obTop;
+      } else if (ob.type == ObstacleType.hardMid || ob.type == ObstacleType.hardSpike) {
+        // HARD CT_mid / CT_spike: walkable nahoře, slope varianta B (horní část) vpravo
+        // Slope začíná od (x + width) po výšku překážky (horní polovina)
+        final slopeStartX = ob.x + ob.width;
+        final slopeH      = ob.height * 0.5; // slope jen v horní části (varianta B)
+        final slopeLen    = slopeH + runnerRadius;
+        final rightEdge   = slopeStartX + slopeLen;
+        // Walkable oblast: od ob.x (killing zleva → hráč musí přijít zprava/seshora)
+        // Povrch nahoře: od ob.x po slopeStartX
+        if (runnerWorldX < ob.x || runnerWorldX > rightEdge) continue;
+        if (runnerWorldX <= slopeStartX) {
+          if (obTop < ground) ground = obTop;
+        } else {
+          // Slope: lineární interpolace od obTop → localFloor v horní části
+          final t = (runnerWorldX - slopeStartX) / slopeLen;
+          final slope = obTop + t * (localFloor - obTop);
+          if (slope < ground) ground = slope;
+        }
       } else {
         final sEndW      = _tileEndW * tileScale;
         const slopeShift = 25.0;
@@ -1063,7 +1137,8 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
     for (final ob in obstacles) {
       // fromFloor=false je OK – spike na základně (typ C) musí také zabíjet
-      if (ob.type != ObstacleType.spike) continue;
+      if (ob.type != ObstacleType.spike &&
+          ob.type != ObstacleType.hardSpike1) continue;
       if (ob.x > runnerWorldFront + 80) break;
       if (ob.x + ob.width < runnerWorldFront - 200) continue;
 
@@ -1191,6 +1266,17 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       if (ob.type == ObstacleType.spike) {
         // SPIKE: jakýkoli kontakt je smrt
         return true;
+      } else if (ob.type == ObstacleType.hardSpike1) {
+        // hardSpike1: jakýkoli kontakt je smrt (stejně jako easy spike)
+        return true;
+      } else if (ob.type == ObstacleType.hardMid || ob.type == ObstacleType.hardSpike) {
+        // hardMid / hardSpike: killing zleva, nahoře walkable, vpravo slope
+        if (rBottom <= top + 6) continue; // přelet shora → OK
+        // Stojíme nahoře?
+        final currentGroundTop = _effectiveGroundY(h, _runnerWorldX);
+        if (grounded && currentGroundTop < baseGround) continue;
+        // Boční náraz zleva → smrt
+        if ((rLeftWorld < ob.x) && (rRightWorld > ob.x + 1)) return true;
       } else if (widget.modeName == 'EASY') {
         // EASY BOX: smrtící pouze čelní náraz (zleva)
         final currentGroundTop = _effectiveGroundY(h, _runnerWorldX);
@@ -1588,6 +1674,11 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final path = '${f}${p}_spike.png';
     return (start: path, mid: path, fill: path, end: path);
   }
+
+  // Hard CT_spike (sudy) sprite
+  String get _hardSpikeSprite => '${widget.spriteFolder}${widget.spritePrefix}_spike.png';
+  // Hard CT_spike1 sprite (stejná grafika jako easy spike)
+  String get _hardSpike1Sprite => 'assets/images/easy/HL_spike.png';
 
   // Bezpečný obrázek – nikdy nehodí ErrorWidget (když asset chybí → prázdno)
   Widget _safeImage(String asset, {BoxFit fit = BoxFit.fill}) {
@@ -2074,6 +2165,9 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     final renderOrder = [
       ...obstacles.where((o) => o.type == ObstacleType.box && o.groundOffset == 0),
       ...obstacles.where((o) => o.type == ObstacleType.box && o.groundOffset > 0),
+      ...obstacles.where((o) => o.type == ObstacleType.hardMid),
+      ...obstacles.where((o) => o.type == ObstacleType.hardSpike),
+      ...obstacles.where((o) => o.type == ObstacleType.hardSpike1),
       ...obstacles.where((o) => o.type == ObstacleType.spike),
     ];
     for (final ob in renderOrder) {
@@ -2121,6 +2215,45 @@ class GameBaseState<TW extends GameBase> extends State<TW>
             child: _safeImage(sp.mid, fit: BoxFit.fill),
           ));
         }
+        continue;
+      }
+
+      // ── Hard CT_mid rendering (Easy style: bloky CT_mid.png za sebou) ──
+      if (ob.type == ObstacleType.hardMid) {
+        final obGroundYH = groundY - ob.groundOffset;
+        final blockW     = _tileMidW * tileScale;
+        final blockH     = _tileH   * tileScale;
+        final blockCount = max(1, (ob.width / blockW).round());
+        // Vizuální posun dolů o 20% výšky bloku (volné místo v obrázku)
+        final visualSink = blockH * 0.20;
+        final imgTop     = obGroundYH - blockH + visualSink;
+        if (screenX0 > size.width + 256 || screenX0 + ob.width < -256) continue;
+        for (int b = 0; b < blockCount; b++) {
+          children.add(Positioned(
+            left:   screenX0 + b * blockW,
+            top:    imgTop,
+            width:  blockW,
+            height: blockH,
+            child:  _safeImage('${widget.spriteFolder}${widget.spritePrefix}_mid.png'),
+          ));
+        }
+        continue;
+      }
+
+      // ── Hard CT_spike / CT_spike1 rendering ───────────────────
+      if (ob.type == ObstacleType.hardSpike ||
+          ob.type == ObstacleType.hardSpike1) {
+        final String sprite = ob.type == ObstacleType.hardSpike
+            ? _hardSpikeSprite
+            : _hardSpike1Sprite;
+        final obGroundYH = groundY - ob.groundOffset;
+        final imgTop     = obGroundYH - ob.height;
+        if (screenX0 > size.width + 256 || screenX0 + ob.width < -256) continue;
+        children.add(Positioned(
+          left: screenX0, top: imgTop,
+          width: ob.width, height: ob.height,
+          child: _safeImage(sprite, fit: BoxFit.fill),
+        ));
         continue;
       }
 
@@ -2326,13 +2459,33 @@ class _RunnerPainter extends CustomPainter {
       final localFloor = groundY - ob.groundOffset;
       final obTop = localFloor - ob.height;
 
-      if (ob.type == ObstacleType.spike) {
-        // Spike: červený obdélník = hitbox
+      if (ob.type == ObstacleType.spike || ob.type == ObstacleType.hardSpike1) {
+        // Spike / hardSpike1: červený obdélník = killing ze všech stran
         canvas.drawRect(
           Rect.fromLTWH(screenX, obTop, ob.width, ob.height),
           hitboxPaint,
         );
-      } else {
+      } else if (ob.type == ObstacleType.hardMid || ob.type == ObstacleType.hardSpike) {
+        // hardMid / hardSpike: červený obdélník tělo, zelená walkable nahoře, oranžová slope
+        canvas.drawRect(Rect.fromLTWH(screenX, obTop, ob.width, ob.height), hitboxPaint);
+        // Walkable nahoře
+        canvas.drawLine(Offset(screenX, obTop), Offset(screenX + ob.width, obTop), walkablePaint);
+        // Slope varianta B: horní polovina pravé strany
+        final slopeStartX = screenX + ob.width;
+        final slopeH      = ob.height * 0.5;
+        final slopeLen    = slopeH + runnerRadius;
+        canvas.drawLine(
+          Offset(slopeStartX, obTop),
+          Offset(slopeStartX + slopeLen, obTop + ob.height),
+          slopePaint,
+        );
+        // Svislá dolní část (wall)
+        canvas.drawLine(
+          Offset(slopeStartX, obTop + slopeH),
+          Offset(slopeStartX, obTop + ob.height),
+          hitboxPaint,
+        );
+      } else if (ob.type == ObstacleType.box) {
         // BOX: červený obdélník = celý hitbox
         canvas.drawRect(
           Rect.fromLTWH(screenX, obTop, ob.width, ob.height),

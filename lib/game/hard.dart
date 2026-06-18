@@ -30,7 +30,7 @@ class HardRun extends GameBase {
         ),
         ParallaxLayerConfig.scroll(
           asset: 'assets/images/hard/CT_3.png',
-          duration: Duration(seconds: 10),
+          duration: Duration(seconds: 7), // vyrovnáno na rychlost hry 135%
           topFraction: 0.87,
           fit: BoxFit.fitHeight,
           alignment: Alignment.bottomLeft,

@@ -10,10 +10,10 @@ class HardRun extends GameBase {
     length: const Duration(minutes: 5),
     milesOnFinish: 25,
     checkpointFreq: const Duration(seconds: 40),
-    speedPercent: 120,
+    speedPercent: 135,
     spritePrefix: 'CT',
     spriteFolder: 'assets/images/hard/',
-    reactionTimeSec: 0.5,
+    reactionTimeSec: 0.40,
     backgroundBuilder: _buildBackground,
   );
 

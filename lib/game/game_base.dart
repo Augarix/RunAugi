@@ -323,14 +323,13 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       const AssetImage(_groundedImg),
       const AssetImage(_gearIcon),
       // Dlaždice aktuálního game modu (dle spritePrefix)
+      // HARD staví jen z CT_mid a CT_spike → start/fill/end/spike1 neexistují.
       AssetImage('${widget.spriteFolder}${widget.spritePrefix}_spike.png'),
-      AssetImage('${widget.spriteFolder}${widget.spritePrefix}_start.png'),
       AssetImage('${widget.spriteFolder}${widget.spritePrefix}_mid.png'),
-      AssetImage('${widget.spriteFolder}${widget.spritePrefix}_fill.png'),
-      AssetImage('${widget.spriteFolder}${widget.spritePrefix}_end.png'),
-      // Hard: extra sprite typy
-      if (widget.modeName == 'HARD') ...[
-        AssetImage('${widget.spriteFolder}${widget.spritePrefix}_spike1.png'),
+      if (widget.modeName != 'HARD') ...[
+        AssetImage('${widget.spriteFolder}${widget.spritePrefix}_start.png'),
+        AssetImage('${widget.spriteFolder}${widget.spritePrefix}_fill.png'),
+        AssetImage('${widget.spriteFolder}${widget.spritePrefix}_end.png'),
       ],
       ..._runCycle.map((p) => AssetImage(p)),
     ];
@@ -896,10 +895,14 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
       // HARD speciály (zachováno)
       if (widget.modeName == 'HARD') {
-        if (rng.nextDouble() < 0.12) {
+        // ⏸️ Flip & Mirror dočasně vypnuty (k ledu).
+        // Zapnutí: vrátit pravděpodobnosti na 0.12 / 0.10.
+        const flipChance   = 0.0; // bylo 0.12
+        const mirrorChance = 0.0; // bylo 0.10
+        if (rng.nextDouble() < flipChance) {
           flips.add(FlipMarker(placeX + 180.0 + rng.nextInt(220)));
         }
-        if (rng.nextDouble() < 0.10) {
+        if (rng.nextDouble() < mirrorChance) {
           final at = placeX + 240.0 + rng.nextInt(440);
           final len = 400.0 + rng.nextInt(600);
           mirrors.add(MirrorMarker(at.toDouble(), (at + len).toDouble()));
@@ -909,7 +912,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
         // Přidávají se jako samostatné překážky za aktuální překážkou
         // s vlastní mezerou (reactionGap). Nepřepisují výše postavenou překážku.
         // P(CT_mid after box) = 25%, P(CT_spike after box) = 15%
-        if (lastWasBox && rng.nextDouble() < 0.25) {
+        if (lastWasBox && rng.nextDouble() < 0.35) {
           final midGap  = reactionGap * (1.2 + rng.nextDouble() * 0.8);
           final midX    = cursor + midGap;
           // CT_mid: mřížka bloků. Výška 2–5 vrstev (jako medium), šířka 3–10 bloků.
@@ -930,7 +933,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
           lastWasSpike = false;
           lastWasPlatform = true;
           lastLayers = midLayers;
-        } else if (lastWasBox && rng.nextDouble() < 0.15) {
+        } else if (lastWasBox && rng.nextDouble() < 0.25) {
           final spikeGap = reactionGap * (1.2 + rng.nextDouble() * 0.6);
           final spikeX   = cursor + spikeGap;
           // CT_spike nebo CT_spike1 (50/50)
@@ -969,14 +972,19 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     _runMeters = worldX / speed * speedMps;
 
     if (widget.modeName == 'HARD') {
+      // Mirror aktivní pouze pokud je runner UVNITŘ některé mirror zóny [atX, untilX).
+      // Stejný deklarativní princip jako flip → bez zaseknutí při překryvu markerů.
+      bool wantMirror = false;
       for (final m in mirrors) {
-        if (!mirroring && worldX >= m.atX && worldX < m.untilX) {
-          mirroring = true;
+        if (worldX >= m.atX && worldX < m.untilX) {
+          wantMirror = true;
           mirrorUntilX = m.untilX;
           break;
         }
       }
-      if (mirroring && worldX >= mirrorUntilX) {
+      if (wantMirror && !mirroring) {
+        mirroring = true;
+      } else if (!wantMirror && mirroring) {
         mirroring = false;
         mirrorUntilX = 0;
       }
@@ -1034,14 +1042,23 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     }
 
     if (widget.modeName == 'HARD') {
+      // Flip aktivní pouze pokud je runner UVNITŘ některé flip zóny [atX, atX+240].
+      // Deklarativní přístup → žádný re-trigger markerů za runnerem, bezpečné při respawnu.
+      bool wantFlip = false;
       for (final f in flips) {
-        if (!gravityFlipped && worldX >= f.atX) {
-          gravityFlipped = true;
-          _stickToCeil();
-        } else if (gravityFlipped && worldX >= f.atX + 240) {
-          gravityFlipped = false;
-          _stickToGround();
-        }
+        if (worldX >= f.atX && worldX < f.atX + 240) { wantFlip = true; break; }
+      }
+      if (wantFlip && !gravityFlipped) {
+        gravityFlipped = true;
+        _stickToCeil();
+      } else if (!wantFlip && gravityFlipped) {
+        gravityFlipped = false;
+        _stickToGround();
+      }
+      // 🔍 DEBUG runner pozice + stav (1× za ~30 framů)
+      if (_runFrame == 0) {
+        debugPrint('[HARD] worldX=${worldX.toStringAsFixed(0)} runnerY=${runnerY.toStringAsFixed(0)} '
+            'flip=$gravityFlipped mirror=$mirroring vy=${vy.toStringAsFixed(0)}');
       }
     }
 

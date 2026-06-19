@@ -146,6 +146,7 @@ abstract final class UiStd {
     required VoidCallback onPrev,
     required VoidCallback onNext,
     String? characterName,
+    bool locked = false,
   }) {
     const btnSize = 40.0;
     const preview = 48.0;
@@ -182,7 +183,19 @@ abstract final class UiStd {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.white24),
               ),
-              child: Image.asset(imagePath, fit: BoxFit.contain),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Image.asset(
+                    imagePath,
+                    fit: BoxFit.contain,
+                    color: locked ? Colors.white.withOpacity(0.25) : null,
+                    colorBlendMode: locked ? BlendMode.modulate : null,
+                  ),
+                  if (locked)
+                    const Icon(Icons.lock, color: Colors.white54, size: 24),
+                ],
+              ),
             ),
             if (characterName != null) ...[
               const SizedBox(height: 2),

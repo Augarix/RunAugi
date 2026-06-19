@@ -21,7 +21,12 @@ class IngameSettingsModal extends StatefulWidget {
 class _IngameSettingsModalState extends State<IngameSettingsModal> {
   final s = SettingsService.I;
 
-  final List<String> _characterIds = const ['augi'];
+  // Stejná data jako v hlavním menu (settings_screen.dart) – aktuální obrázek
+  // runnera (Run1.png) + zamčený placeholder skin.
+  final List<({String id, String asset, bool locked})> _characters = const [
+    (id: 'augi', asset: 'assets/images/run/Run1.png', locked: false),
+    (id: 'placeholder', asset: 'assets/images/placeholder.png', locked: true),
+  ];
   int _charIndex = 0;
 
   // Nižší breakpoint pro dvousloupcové rozložení v modalu
@@ -34,7 +39,7 @@ class _IngameSettingsModalState extends State<IngameSettingsModal> {
 
     final saved = s.characterId;
     if (saved != null) {
-      final i = _characterIds.indexOf(saved);
+      final i = _characters.indexWhere((c) => c.id == saved);
       if (i >= 0) _charIndex = i;
     }
   }
@@ -143,7 +148,8 @@ class _IngameSettingsModalState extends State<IngameSettingsModal> {
                       UiStd.row(
                         label: T.settingsCharacter(),
                         trailing: UiStd.characterPicker(
-                          imagePath: _assetFor(_characterIds[_charIndex]),
+                          imagePath: _characters[_charIndex].asset,
+                          locked: _characters[_charIndex].locked,
                           onPrev: _prevCharacter,
                           onNext: _nextCharacter,
                         ),
@@ -194,27 +200,21 @@ class _IngameSettingsModalState extends State<IngameSettingsModal> {
   }
 
   // —— helpers ——
-  String _assetFor(String id) {
-    // ✔️ opravena case-sensitive cesta
-    switch (id) {
-      case 'augi':
-      default:
-        return 'assets/images/augi.png';
-    }
-  }
-
   void _prevCharacter() {
     setState(() {
-      _charIndex = (_charIndex - 1) % _characterIds.length;
-      if (_charIndex < 0) _charIndex = _characterIds.length - 1;
-      SettingsService.I.setCharacterId(_characterIds[_charIndex]);
+      _charIndex = (_charIndex - 1 + _characters.length) % _characters.length;
+      if (!_characters[_charIndex].locked) {
+        SettingsService.I.setCharacterId(_characters[_charIndex].id);
+      }
     });
   }
 
   void _nextCharacter() {
     setState(() {
-      _charIndex = (_charIndex + 1) % _characterIds.length;
-      SettingsService.I.setCharacterId(_characterIds[_charIndex]);
+      _charIndex = (_charIndex + 1) % _characters.length;
+      if (!_characters[_charIndex].locked) {
+        SettingsService.I.setCharacterId(_characters[_charIndex].id);
+      }
     });
   }
 

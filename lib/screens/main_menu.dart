@@ -66,6 +66,8 @@ class _MainMenuState extends State<MainMenu> {
   void initState() {
     super.initState();
     MusicService.I.ensureMenuMusic();
+    // Reaguj na změny nastavení (jazyk apod.) → překresli menu s aktuálními T.* texty.
+    SettingsService.I.addListener(_onSettingsChanged);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -73,6 +75,16 @@ class _MainMenuState extends State<MainMenu> {
       statusBarIconBrightness: Brightness.light,
       systemNavigationBarIconBrightness: Brightness.light,
     ));
+  }
+
+  void _onSettingsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    SettingsService.I.removeListener(_onSettingsChanged);
+    super.dispose();
   }
 
   @override
@@ -175,10 +187,15 @@ class _MainMenuState extends State<MainMenu> {
             child: _cornerIcon(
               asset: 'assets/images/icon_settings.png',
               tooltip: T.btnSettings(),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              ),
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+                // Po návratu z nastavení překresli menu – jazyk se mohl změnit,
+                // takže T.btnRun() a další T.* texty potřebují rebuild.
+                if (mounted) setState(() {});
+              },
             ),
           ),
 

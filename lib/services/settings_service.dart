@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/lang.dart';
+import '../texty.dart'; // synchronizace T.lang při změně jazyka
 
 /// Styl hudby pro menu i hru.
 enum MusicStyle { traditional, modern }
@@ -48,6 +49,7 @@ class SettingsService with ChangeNotifier {
     // LANG
     final langRaw = prefs.get(_kLang);
     _lang = _parseLang(langRaw) ?? _lang;
+    T.lang = _lang; // synchronizace po startu appky
 
     // MUSIC ON/OFF
     final hasMusicKey = prefs.containsKey(_kMusicOn);
@@ -122,6 +124,7 @@ class SettingsService with ChangeNotifier {
   // Setters
   Future<void> setLang(Lang v) async {
     _lang = v;
+    T.lang = v; // ⬅️ udrž T.lang vždy synchronní (jinak T.* texty drží starý jazyk)
     // Pokud má uživatel výchozí jméno, přepni ho do nového jazyka
     if (_username == _defaultUsernameCz || _username == _defaultUsernameEn) {
       _username = v == Lang.cz ? _defaultUsernameCz : _defaultUsernameEn;

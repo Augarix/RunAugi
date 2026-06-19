@@ -318,7 +318,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                                                 ),
                                                 Expanded(
                                                   child: Text(
-                                                    e.name,
+                                                    LeaderboardModel.displayName(e.name),
                                                     maxLines: 1,
                                                     overflow: TextOverflow.ellipsis,
                                                     style: const TextStyle(

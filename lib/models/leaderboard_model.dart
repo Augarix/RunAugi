@@ -1,5 +1,7 @@
 // lib/models/leaderboard_model.dart
 import 'dart:math';
+import '../texty.dart';
+import 'lang.dart';
 
 class LBEntry {
   final String name;
@@ -168,5 +170,16 @@ class LeaderboardModel {
     final r = rand ?? Random();
     final n = 1 + r.nextInt(1000);
     return 'Anonymní Kelt $n';
+  }
+
+  /// Lokalizuje jméno pro ZOBRAZENÍ podle aktuálního jazyka (T.lang).
+  /// Uložená identita zůstává kanonická ("Anonymní Kelt N"); mění se jen popisek.
+  /// Rozpozná oba tvary (CZ "Anonymní Kelt N" i EN "Anonymous Celt N") → vrátí
+  /// správnou variantu pro aktuální jazyk. Ostatní jména vrací beze změny.
+  static String displayName(String stored) {
+    final m = RegExp(r'^(?:Anonymní Kelt|Anonymous Celt)\s+(\d+)$').firstMatch(stored.trim());
+    if (m == null) return stored;
+    final n = m.group(1);
+    return T.lang == Lang.cz ? 'Anonymní Kelt $n' : 'Anonymous Celt $n';
   }
 }

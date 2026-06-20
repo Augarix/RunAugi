@@ -19,7 +19,7 @@ import '../screens/run_select.dart';     // ⬅️ přechod na výběr obtížno
 // ———————————————————————————————————————————————————————————
 // Intro a typy
 // ———————————————————————————————————————————————————————————
-enum IntroPhase { ready, set, go, none }
+enum IntroPhase { ready, set, go1, go2, go3, go4, go, none }
 enum ObstacleType {
   box,
   spike,
@@ -171,6 +171,10 @@ class GameBaseState<TW extends GameBase> extends State<TW>
 
   static const String _readyImg    = 'assets/images/run/Ready.png';
   static const String _setImg      = 'assets/images/run/Set.png';
+  static const String _go1Img     = 'assets/images/run/go1.png';
+  static const String _go2Img     = 'assets/images/run/go2.png';
+  static const String _go3Img     = 'assets/images/run/go3.png';
+  static const String _go4Img     = 'assets/images/run/go4.png';
   static const String _goImg       = 'assets/images/run/Go.png';
   static const List<String> _runCycle = [
     'assets/images/run/Run1.png',
@@ -319,6 +323,10 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       const AssetImage(_bgGif),
       const AssetImage(_readyImg),
       const AssetImage(_setImg),
+      const AssetImage(_go1Img),
+      const AssetImage(_go2Img),
+      const AssetImage(_go3Img),
+      const AssetImage(_go4Img),
       const AssetImage(_goImg),
       const AssetImage(_jumpImg),
       const AssetImage(_deathImg),
@@ -406,35 +414,50 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     setState(() => _intro = IntroPhase.ready);
     _syncBgAnim();
     _introTimer?.cancel();
-    _introTimer = Timer(const Duration(milliseconds: 600), () {
-      if (!mounted) return;
-      setState(() => _intro = IntroPhase.set);
-      _syncBgAnim();
-      _introTimer = Timer(const Duration(milliseconds: 600), () {
+
+    // Sekvence fází s milisekundovým trváním každé
+    const phases = [
+      (IntroPhase.set, 600),   // READY → SET
+      (IntroPhase.go1, 600),   // SET → go1
+      (IntroPhase.go2, 50),   // go1 → go2
+      (IntroPhase.go3, 50),   // go2 → go3
+      (IntroPhase.go4, 50),   // go3 → go4
+      (IntroPhase.go,  50),   // go4 → Go.png
+    ];
+
+    void _chainPhases(int i) {
+      if (!mounted || i >= phases.length) return;
+      final (phase, delayMs) = phases[i];
+      _introTimer = Timer(Duration(milliseconds: delayMs), () {
         if (!mounted) return;
-        setState(() => _intro = IntroPhase.go);
+        setState(() => _intro = phase);
         _syncBgAnim();
-        _introTimer = Timer(const Duration(milliseconds: 700), () {
-          if (!mounted) return;
-          _stickToGround();
-          setState(() {
-            _intro = IntroPhase.none;
-            _gameRunning = true;
-            // Pokud obnovujeme checkpoint, posuň startTime dozadu
-            startTime = _savedElapsedMs > 0
-                ? DateTime.now().subtract(Duration(milliseconds: _savedElapsedMs))
-                : DateTime.now();
-            lastTick = _savedElapsedMs > 0
-                ? Duration(milliseconds: _savedElapsedMs)
-                : Duration.zero;
-            _savedElapsedMs = 0; // spotřebováno
+        if (i + 1 < phases.length) {
+          _chainPhases(i + 1);
+        } else {
+          // Po poslední fázi (Go) → spusť hru
+          _introTimer = Timer(const Duration(milliseconds: 700), () {
+            if (!mounted) return;
+            _stickToGround();
+            setState(() {
+              _intro = IntroPhase.none;
+              _gameRunning = true;
+              startTime = _savedElapsedMs > 0
+                  ? DateTime.now().subtract(Duration(milliseconds: _savedElapsedMs))
+                  : DateTime.now();
+              lastTick = _savedElapsedMs > 0
+                  ? Duration(milliseconds: _savedElapsedMs)
+                  : Duration.zero;
+              _savedElapsedMs = 0;
+            });
+            bgPlayingNotifier.value = true;
+            _syncBgAnim();
           });
-          bgPlayingNotifier.value = true;
-          _syncBgAnim();
-          // automatický skok po GO záměrně odstraněn
-        });
+        }
       });
-    });
+    }
+
+    _chainPhases(0);
   }
 
   void _startRunCycle() {
@@ -1970,9 +1993,16 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       // Před prvním tapem zobraz Ready
       playerSprite = _readyImg;
     } else if (_intro != IntroPhase.none) {
-      playerSprite = _intro == IntroPhase.ready ? _readyImg
-          : _intro == IntroPhase.set   ? _setImg
-          : _goImg;
+      playerSprite = switch (_intro) {
+        IntroPhase.ready => _readyImg,
+        IntroPhase.set   => _setImg,
+        IntroPhase.go1   => _go1Img,
+        IntroPhase.go2   => _go2Img,
+        IntroPhase.go3   => _go3Img,
+        IntroPhase.go4   => _go4Img,
+        IntroPhase.go    => _goImg,
+        IntroPhase.none  => _goImg, // fallback, nemělo by nastat
+      };
     } else if (_deadFrozen) {
       // po smrti chvilku Death, pak Grounded (stojíme a čekáme na tap)
       final since = _lastDeathAt == null ? Duration.zero : DateTime.now().difference(_lastDeathAt!);

@@ -56,6 +56,10 @@ flutter:
     - assets/music/track_m6.mp3
     - assets/images/run/Ready.png
     - assets/images/run/Set.png
+    - assets/images/run/go1.png
+    - assets/images/run/go2.png
+    - assets/images/run/go3.png
+    - assets/images/run/go4.png
     - assets/images/run/Go.png
     - assets/images/run/Run1.png
     - assets/images/run/Run2.png

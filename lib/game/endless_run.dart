@@ -795,7 +795,8 @@ class _EndlessRunState extends State<EndlessRun>
       PlayerProfile.I.addMiles(5);
       AchLogic.I.onEndlessBanner();
       LeaderboardModel.I.updatePlayer(
-        SettingsService.I.username, PlayerProfile.I.milesTotal, km: _bestMeters,
+        SettingsService.I.username, PlayerProfile.I.milesTotal,
+        km: PlayerProfile.I.metersTotal,
       );
     }
 
@@ -859,11 +860,15 @@ class _EndlessRunState extends State<EndlessRun>
     // Score
     final currentM = _runMeters.floorToDouble();
     if (currentM > _bestMeters) {
+      final newM = currentM - _bestMeters;
       _bestMeters = currentM;
       SharedPreferences.getInstance().then((p) =>
           p.setDouble(EndlessRun._bestKey, _bestMeters));
+      // Přičti nově nachozené metry ke kumulativnímu součtu
+      PlayerProfile.I.addMeters(newM);
       LeaderboardModel.I.updatePlayer(
-        SettingsService.I.username, PlayerProfile.I.milesTotal, km: _bestMeters,
+        SettingsService.I.username, PlayerProfile.I.milesTotal,
+        km: PlayerProfile.I.metersTotal,
       );
     }
 

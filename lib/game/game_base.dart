@@ -1391,19 +1391,25 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     // ── Výpočet nového skóre ──────────────────────────────────
     _sessionNewM = 0;
     final currentM = _runMeters.floorToDouble();
+    debugPrint('[SCORE] mode=${widget.modeName} currentM=$currentM _bestMeters=$_bestMeters '
+        'metersTotal=${PlayerProfile.I.metersTotal}');
     if (currentM > _bestMeters) {
       _sessionNewM = currentM - _bestMeters;
       _bestMeters  = currentM;
-      // Ulož rekord
+      // Ulož per-mód rekord
       SharedPreferences.getInstance().then((prefs) {
         prefs.setDouble(widget.bestXPrefsKey, _bestMeters);
       });
-      // Leaderboard snapshot
+      // Přičti nově nachozené metry ke KUMULATIVNÍMU součtu napříč obtížnostmi
+      PlayerProfile.I.addMeters(_sessionNewM);
+      debugPrint('[SCORE] addMeters($_sessionNewM) → metersTotal=${PlayerProfile.I.metersTotal}');
+      // Leaderboard snapshot – km = kumulativní nachozené metry (ne per-mód best)
       LeaderboardModel.I.updatePlayer(
         SettingsService.I.username,
         PlayerProfile.I.milesTotal,
-        km: _bestMeters,
+        km: PlayerProfile.I.metersTotal,
       );
+      debugPrint('[SCORE] updatePlayer km=${PlayerProfile.I.metersTotal}');
       // Míle za každých 1000m
       final newMiles = (_sessionNewM / 1000).floor();
       if (newMiles > 0) PlayerProfile.I.addMiles(newMiles);
@@ -1551,7 +1557,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
       PlayerProfile.I.addMiles(5);
       AchLogic.I.onEndlessBanner();
       LeaderboardModel.I.updatePlayer(SettingsService.I.username, PlayerProfile.I.milesTotal,
-          km: _bestMeters);
+          km: PlayerProfile.I.metersTotal);
     }
   }
 
@@ -1577,7 +1583,7 @@ class GameBaseState<TW extends GameBase> extends State<TW>
     }
 
     LeaderboardModel.I.updatePlayer(SettingsService.I.username, PlayerProfile.I.milesTotal,
-        km: _bestMeters);
+        km: PlayerProfile.I.metersTotal);
     _showFinishDialog();
   }
 

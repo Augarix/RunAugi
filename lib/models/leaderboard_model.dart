@@ -1,7 +1,9 @@
 // lib/models/leaderboard_model.dart
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import '../texty.dart';
 import 'lang.dart';
+import 'player_prefs.dart';
 
 class LBEntry {
   final String name;
@@ -151,7 +153,14 @@ class LeaderboardModel {
 
   /// Zpětně kompatibilní update – bez km (použije miles → km konverzi)
   void updatePlayer(String playerName, int miles, {double? km}) {
+    debugPrint('[LB] updatePlayer("$playerName", miles=$miles, km=$km) '
+        'metersTotal=${PlayerProfile.I.metersTotal}');
     ensurePlayer(playerName, miles, km: km);
+    final idx = entries.indexWhere((e) => e.name == playerName ||
+        e.name == (playerName.trim().isEmpty ? '' : playerName.trim()));
+    if (idx >= 0) {
+      debugPrint('[LB] → entry.km=${entries[idx].km} rank=${idx + 1}');
+    }
   }
 
   int indexOf(String playerName) {

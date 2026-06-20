@@ -103,6 +103,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     final currentMiles = PlayerProfile.I.milesTotal;
     final exists = LeaderboardModel.I.entries.any((e) => e.name == name);
 
+    debugPrint('[LB_SCREEN] _ensurePlayer("$name") exists=$exists '
+        'currentMiles=$currentMiles metersTotal=${PlayerProfile.I.metersTotal}');
+
     if (!exists) {
       LeaderboardModel.I.updatePlayer(name, 0);
     } else {
